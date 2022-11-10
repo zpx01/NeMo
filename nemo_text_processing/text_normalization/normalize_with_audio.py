@@ -20,9 +20,11 @@ from glob import glob
 from typing import List, Optional, Tuple
 
 import pynini
+from nemo_text_processing.alignment import create_symbol_table, get_string_alignment, indexed_map_to_output, get_spans
 from joblib import Parallel, delayed
 from nemo_text_processing.text_normalization.data_loader_utils import post_process_punct, pre_process
 from nemo_text_processing.text_normalization.normalize import Normalizer
+from pynini import Far
 from pynini.lib import rewrite
 from tqdm import tqdm
 
@@ -93,6 +95,7 @@ class NormalizerWithAudio(Normalizer):
         post_process: bool = True,
     ):
 
+        # initialize non-deterministic normalizer
         super().__init__(
             input_case=input_case,
             lang=lang,
@@ -103,6 +106,29 @@ class NormalizerWithAudio(Normalizer):
             lm=lm,
             post_process=post_process,
         )
+        # self.tagger_non_deterministic = self.tagger
+        # self.verbalizer_non_deterministic = self.verbalizer
+        #
+        # # initialize deterministic normalizer
+        # super().__init__(
+        #     input_case=input_case,
+        #     lang=lang,
+        #     deterministic=True,
+        #     cache_dir=cache_dir,
+        #     overwrite_cache=overwrite_cache,
+        #     whitelist=whitelist,
+        #     lm=lm,
+        #     post_process=post_process,
+        # )
+
+        fst_tc = f"{cache_dir}/en_tn_True_deterministic_cased__tokenize.far"
+        fst_ver = f"{cache_dir}/en_tn_True_deterministic_verbalizer.far"
+        fst_punct_post = f"{cache_dir}/en_tn_post_processing.far"
+        fst_tc = Far(fst_tc, mode='r')['tokenize_and_classify']
+        fst_ver = Far(fst_ver, mode='r')['verbalize']
+        fst_punct_post = Far(fst_punct_post, mode='r')['post_process_graph']
+        self.merged_tn_deterministic_graph = (fst_tc @ fst_ver) @ fst_punct_post
+        self.symbol_table = create_symbol_table()
         self.lm = lm
 
     def normalize(self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False,) -> str:
@@ -126,17 +152,44 @@ class NormalizerWithAudio(Normalizer):
                 "or strings with fewer than 500 words"
             )
 
-        original_text = text
-        text = pre_process(text)  # to handle []
+        # run deterministic TN to get the alignments
+        alignment, text_norm_deterministic = get_string_alignment(fst=self.merged_tn_deterministic_graph, input_text=text, symbol_table=self.symbol_table)
+        spans = get_spans(text)
 
+        semiotic_spans = {}
+        for span in spans:
+            start_input, end_input = span
+
+            start, end = indexed_map_to_output(start=start_input, end=end_input, alignment=alignment)
+            span_original = text[start_input:end_input]
+            span_normalized = text_norm_deterministic[start:end]
+            if span_original != span_normalized:
+                semiotic_spans[(start_input, end_input)] = self.normalize_non_deterministic(
+                    text=text,
+                    n_tagged=n_tagged,
+                    punct_post_process=punct_post_process,
+                    verbose=verbose,
+                )
+
+
+        if verbose:
+            for k, v in semiotic_spans.items():
+                print(k)
+                print(v)
+                print("=" * 40)
+
+        return semiotic_spans, text
+
+    def normalize_non_deterministic(
+        self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False
+    ):
         text = text.strip()
         if not text:
             if verbose:
                 print(text)
             return text
         text = pynini.escape(text)
-        print(text)
-
+        text = pre_process(text)
         if self.lm:
             if self.lang not in ["en"]:
                 raise ValueError(f"{self.lang} is not supported in LM mode")
@@ -174,7 +227,7 @@ class NormalizerWithAudio(Normalizer):
             if self.processor:
                 normalized_texts = [self.processor.detokenize([t]) for t in normalized_texts]
                 normalized_texts = [
-                    post_process_punct(input=original_text, normalized_text=t) for t in normalized_texts
+                    post_process_punct(input=text, normalized_text=t) for t in normalized_texts
                 ]
 
         if self.lm:
@@ -498,15 +551,13 @@ if __name__ == "__main__":
         if os.path.exists(args.text):
             with open(args.text, 'r') as f:
                 args.text = f.read().strip()
-        normalized_texts = normalizer.normalize(
+            semiotic_spans, args.text = normalizer.normalize(
             text=args.text,
             verbose=args.verbose,
             n_tagged=args.n_tagged,
             punct_post_process=not args.no_punct_post_process,
         )
 
-        if not normalizer.lm:
-            normalized_texts = set(normalized_texts)
         if args.audio_data:
             asr_model = get_asr_model(args.model)
             pred_text = asr_model.transcribe([args.audio_data])[0]
