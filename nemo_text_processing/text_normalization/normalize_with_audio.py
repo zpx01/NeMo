@@ -24,7 +24,7 @@ from joblib import Parallel, delayed
 from nemo_text_processing.alignment import create_symbol_table, get_spans, get_string_alignment, indexed_map_to_output
 from nemo_text_processing.text_normalization.data_loader_utils import post_process_punct, pre_process
 from nemo_text_processing.text_normalization.normalize import Normalizer
-from nemo_text_processing.text_normalization.utils_audio_based import ge
+from nemo_text_processing.text_normalization.utils_audio_based import get_alignment
 from pynini import Far
 from pynini.lib import rewrite
 from tqdm import tqdm
@@ -122,17 +122,20 @@ class NormalizerWithAudio(Normalizer):
             post_process=post_process,
         )
 
-        fst_tc = f"{cache_dir}/en_tn_True_deterministic_cased__tokenize.far"
-        fst_ver = f"{cache_dir}/en_tn_True_deterministic_verbalizer.far"
-        fst_punct_post = f"{cache_dir}/en_tn_post_processing.far"
-        fst_tc = Far(fst_tc, mode='r')['tokenize_and_classify']
-        fst_ver = Far(fst_ver, mode='r')['verbalize']
-        fst_punct_post = Far(fst_punct_post, mode='r')['post_process_graph']
-        self.merged_tn_deterministic_graph = (fst_tc @ fst_ver) @ fst_punct_post
-        self.symbol_table = create_symbol_table()
+        # fst_tc = f"{cache_dir}/en_tn_True_deterministic_cased__tokenize.far"
+        # fst_ver = f"{cache_dir}/en_tn_True_deterministic_verbalizer.far"
+        # fst_punct_post = f"{cache_dir}/en_tn_post_processing.far"
+        # fst_tc = Far(fst_tc, mode='r')['tokenize_and_classify']
+        # fst_ver = Far(fst_ver, mode='r')['verbalize']
+        # fst_punct_post = Far(fst_punct_post, mode='r')['post_process_graph']
+        #
+        # self.merged_tn_deterministic_graph = (fst_tc @ fst_ver) @ fst_punct_post
+        # self.symbol_table = create_symbol_table()
         self.lm = lm
 
-    def normalize(self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False,) -> str:
+    def normalize(
+        self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False, pred_text: str = None
+    ) -> str:
         """
         Main function. Normalizes tokens from written to spoken form
             e.g. 12 kg -> twelve kilograms
@@ -153,23 +156,36 @@ class NormalizerWithAudio(Normalizer):
                 "or strings with fewer than 500 words"
             )
 
-        # run deterministic TN to get the alignments
-        alignment, text_norm_deterministic = get_string_alignment(
-            fst=self.merged_tn_deterministic_graph, input_text=text, symbol_table=self.symbol_table
+        text = "This, example: number 15,000 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01, and can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
+        pred_text = "this w example nuber viteen thousand can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
+
+        text_norm_determinstic = super().normalize(
+            text=text, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
         )
-        spans = get_spans(text)
+        text_for_audio_based = get_alignment(text, text_norm_determinstic, pred_text)
+        # if pred_text is None: just return normalizations
 
-        semiotic_spans = {}
-        for span in spans:
-            start_input, end_input = span
-
-            start, end = indexed_map_to_output(start=start_input, end=end_input, alignment=alignment)
-            span_original = text[start_input:end_input]
-            span_normalized = text_norm_deterministic[start:end]
-            if span_original != span_normalized:
-                semiotic_spans[(start_input, end_input)] = self.normalize_non_deterministic(
-                    text=span_original, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose,
+        text_for_audio_based["options"] = []
+        text_for_audio_based["audio_selected"] = []
+        text_for_audio_based["cer"] = []
+        for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"]):
+            try:
+                options = self.normalize_non_deterministic(
+                    text=semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose
                 )
+            except:
+                # TODO: fall back to the default normalization -> restore from the alignment
+                options = ["DEFAULT"]
+
+            text_for_audio_based["options"].append(options)
+            best_option, cer = self.select_best_match(
+                normalized_texts=options,
+                input_text=semiotic_span,
+                pred_text=text_for_audio_based["pred_text"][idx],
+                verbose=verbose,
+            )
+            text_for_audio_based["audio_selected"].append(best_option)
+            text_for_audio_based["cer"].append(cer)
 
         if verbose:
             for k, v in semiotic_spans.items():
@@ -197,12 +213,12 @@ class NormalizerWithAudio(Normalizer):
                 # this to keep arpabet phonemes in the list of options
                 if "[" in text and "]" in text:
 
-                    lattice = rewrite.rewrite_lattice(text, self.tagger.fst)
+                    lattice = rewrite.rewrite_lattice(text, self.tagger_non_deterministic.fst)
                 else:
                     try:
-                        lattice = rewrite.rewrite_lattice(text, self.tagger.fst_no_digits)
+                        lattice = rewrite.rewrite_lattice(text, self.tagger_non_deterministic.fst_no_digits)
                     except pynini.lib.rewrite.Error:
-                        lattice = rewrite.rewrite_lattice(text, self.tagger.fst)
+                        lattice = rewrite.rewrite_lattice(text, self.tagger_non_deterministic.fst)
                 lattice = rewrite.lattice_to_nshortest(lattice, n_tagged)
                 tagged_texts = [(x[1], float(x[2])) for x in lattice.paths().items()]
                 tagged_texts.sort(key=lambda x: x[1])
@@ -246,27 +262,31 @@ class NormalizerWithAudio(Normalizer):
             if self.lang == "en":
                 # this to keep arpabet phonemes in the list of options
                 if "[" in text and "]" in text:
-                    tagged_texts = rewrite.rewrites(text, self.tagger.fst)
+                    tagged_texts = rewrite.rewrites(text, self.tagger_non_deterministic.fst)
                 else:
                     try:
-                        tagged_texts = rewrite.rewrites(text, self.tagger.fst_no_digits)
+                        tagged_texts = rewrite.rewrites(text, self.tagger_non_deterministic.fst_no_digits)
                     except pynini.lib.rewrite.Error:
-                        tagged_texts = rewrite.rewrites(text, self.tagger.fst)
+                        tagged_texts = rewrite.rewrites(text, self.tagger_non_deterministic.fst)
             else:
-                tagged_texts = rewrite.rewrites(text, self.tagger.fst)
+                tagged_texts = rewrite.rewrites(text, self.tagger_non_deterministic.fst)
         else:
             if self.lang == "en":
                 # this to keep arpabet phonemes in the list of options
                 if "[" in text and "]" in text:
-                    tagged_texts = rewrite.top_rewrites(text, self.tagger.fst, nshortest=n_tagged)
+                    tagged_texts = rewrite.top_rewrites(text, self.tagger_non_deterministic.fst, nshortest=n_tagged)
                 else:
                     try:
                         # try self.tagger graph that produces output without digits
-                        tagged_texts = rewrite.top_rewrites(text, self.tagger.fst_no_digits, nshortest=n_tagged)
+                        tagged_texts = rewrite.top_rewrites(
+                            text, self.tagger_non_deterministic.fst_no_digits, nshortest=n_tagged
+                        )
                     except pynini.lib.rewrite.Error:
-                        tagged_texts = rewrite.top_rewrites(text, self.tagger.fst, nshortest=n_tagged)
+                        tagged_texts = rewrite.top_rewrites(
+                            text, self.tagger_non_deterministic.fst, nshortest=n_tagged
+                        )
             else:
-                tagged_texts = rewrite.top_rewrites(text, self.tagger.fst, nshortest=n_tagged)
+                tagged_texts = rewrite.top_rewrites(text, self.tagger_non_deterministic.fst, nshortest=n_tagged)
         return tagged_texts
 
     def _verbalize(self, tagged_text: str, normalized_texts: List[str], verbose: bool = False):
