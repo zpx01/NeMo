@@ -20,10 +20,11 @@ from glob import glob
 from typing import List, Optional, Tuple
 
 import pynini
-from nemo_text_processing.alignment import create_symbol_table, get_string_alignment, indexed_map_to_output, get_spans
 from joblib import Parallel, delayed
+from nemo_text_processing.alignment import create_symbol_table, get_spans, get_string_alignment, indexed_map_to_output
 from nemo_text_processing.text_normalization.data_loader_utils import post_process_punct, pre_process
 from nemo_text_processing.text_normalization.normalize import Normalizer
+from nemo_text_processing.text_normalization.utils_audio_based import ge
 from pynini import Far
 from pynini.lib import rewrite
 from tqdm import tqdm
@@ -106,20 +107,20 @@ class NormalizerWithAudio(Normalizer):
             lm=lm,
             post_process=post_process,
         )
-        # self.tagger_non_deterministic = self.tagger
-        # self.verbalizer_non_deterministic = self.verbalizer
-        #
-        # # initialize deterministic normalizer
-        # super().__init__(
-        #     input_case=input_case,
-        #     lang=lang,
-        #     deterministic=True,
-        #     cache_dir=cache_dir,
-        #     overwrite_cache=overwrite_cache,
-        #     whitelist=whitelist,
-        #     lm=lm,
-        #     post_process=post_process,
-        # )
+        self.tagger_non_deterministic = self.tagger
+        self.verbalizer_non_deterministic = self.verbalizer
+
+        # initialize deterministic normalizer
+        super().__init__(
+            input_case=input_case,
+            lang=lang,
+            deterministic=True,
+            cache_dir=cache_dir,
+            overwrite_cache=overwrite_cache,
+            whitelist=whitelist,
+            lm=lm,
+            post_process=post_process,
+        )
 
         fst_tc = f"{cache_dir}/en_tn_True_deterministic_cased__tokenize.far"
         fst_ver = f"{cache_dir}/en_tn_True_deterministic_verbalizer.far"
@@ -153,7 +154,9 @@ class NormalizerWithAudio(Normalizer):
             )
 
         # run deterministic TN to get the alignments
-        alignment, text_norm_deterministic = get_string_alignment(fst=self.merged_tn_deterministic_graph, input_text=text, symbol_table=self.symbol_table)
+        alignment, text_norm_deterministic = get_string_alignment(
+            fst=self.merged_tn_deterministic_graph, input_text=text, symbol_table=self.symbol_table
+        )
         spans = get_spans(text)
 
         semiotic_spans = {}
@@ -165,12 +168,8 @@ class NormalizerWithAudio(Normalizer):
             span_normalized = text_norm_deterministic[start:end]
             if span_original != span_normalized:
                 semiotic_spans[(start_input, end_input)] = self.normalize_non_deterministic(
-                    text=text,
-                    n_tagged=n_tagged,
-                    punct_post_process=punct_post_process,
-                    verbose=verbose,
+                    text=span_original, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose,
                 )
-
 
         if verbose:
             for k, v in semiotic_spans.items():
@@ -226,9 +225,7 @@ class NormalizerWithAudio(Normalizer):
             # do post-processing based on Moses detokenizer
             if self.processor:
                 normalized_texts = [self.processor.detokenize([t]) for t in normalized_texts]
-                normalized_texts = [
-                    post_process_punct(input=text, normalized_text=t) for t in normalized_texts
-                ]
+                normalized_texts = [post_process_punct(input=text, normalized_text=t) for t in normalized_texts]
 
         if self.lm:
             remove_dup = sorted(list(set(zip(normalized_texts, weights))), key=lambda x: x[1])
@@ -354,7 +351,7 @@ def calculate_cer(normalized_texts: List[str], pred_text: str, remove_punct=Fals
         text_clean = text.replace('-', ' ').lower()
         if remove_punct:
             for punct in "!?:;,.-()*+-/<=>@^_":
-                text_clean = text_clean.replace(punct, "")
+                text_clean = text_clean.replace(punct, " ").replace("  ", " ")
         cer = round(word_error_rate([pred_text], [text_clean], use_cer=True) * 100, 2)
         normalized_options.append((text, cer))
     return normalized_options
@@ -552,15 +549,19 @@ if __name__ == "__main__":
             with open(args.text, 'r') as f:
                 args.text = f.read().strip()
             semiotic_spans, args.text = normalizer.normalize(
-            text=args.text,
-            verbose=args.verbose,
-            n_tagged=args.n_tagged,
-            punct_post_process=not args.no_punct_post_process,
-        )
+                text=args.text,
+                verbose=args.verbose,
+                n_tagged=args.n_tagged,
+                punct_post_process=not args.no_punct_post_process,
+            )
 
+        import pdb
+
+        pdb.set_trace()
         if args.audio_data:
-            asr_model = get_asr_model(args.model)
-            pred_text = asr_model.transcribe([args.audio_data])[0]
+            # asr_model = get_asr_model(args.model)
+            # pred_text = asr_model.transcribe([args.audio_data])[0]
+            pred_text = "this example number fifteen thousand can be a very lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
             normalized_text, cer = normalizer.select_best_match(
                 normalized_texts=normalized_texts,
                 pred_text=pred_text,

@@ -1,5 +1,4 @@
 huggingface_hub
-numba
 numpy>=1.21
 onnx>=1.7.0
 python-dateutil
