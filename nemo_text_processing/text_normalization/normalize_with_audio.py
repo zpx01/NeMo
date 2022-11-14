@@ -21,11 +21,9 @@ from typing import List, Optional, Tuple
 
 import pynini
 from joblib import Parallel, delayed
-from nemo_text_processing.alignment import create_symbol_table, get_spans, get_string_alignment, indexed_map_to_output
 from nemo_text_processing.text_normalization.data_loader_utils import post_process_punct, pre_process
 from nemo_text_processing.text_normalization.normalize import Normalizer
-from nemo_text_processing.text_normalization.utils_audio_based import get_alignment
-from pynini import Far
+from nemo_text_processing.text_normalization.utils_audio_based import SEMIOTIC_TAG, get_alignment
 from pynini.lib import rewrite
 from tqdm import tqdm
 
@@ -122,15 +120,6 @@ class NormalizerWithAudio(Normalizer):
             post_process=post_process,
         )
 
-        # fst_tc = f"{cache_dir}/en_tn_True_deterministic_cased__tokenize.far"
-        # fst_ver = f"{cache_dir}/en_tn_True_deterministic_verbalizer.far"
-        # fst_punct_post = f"{cache_dir}/en_tn_post_processing.far"
-        # fst_tc = Far(fst_tc, mode='r')['tokenize_and_classify']
-        # fst_ver = Far(fst_ver, mode='r')['verbalize']
-        # fst_punct_post = Far(fst_punct_post, mode='r')['post_process_graph']
-        #
-        # self.merged_tn_deterministic_graph = (fst_tc @ fst_ver) @ fst_punct_post
-        # self.symbol_table = create_symbol_table()
         self.lm = lm
 
     def normalize(
@@ -155,9 +144,6 @@ class NormalizerWithAudio(Normalizer):
                 "Your input is too long. Please split up the input into sentences, "
                 "or strings with fewer than 500 words"
             )
-
-        text = "This, example: number 15,000 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01, and can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
-        pred_text = "this w example nuber viteen thousand can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
 
         text_norm_determinstic = super().normalize(
             text=text, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
@@ -193,7 +179,14 @@ class NormalizerWithAudio(Normalizer):
                 print(v)
                 print("=" * 40)
 
-        return semiotic_spans, text
+        normalized_text = text_for_audio_based["standard"]
+
+        assert normalized_text.count(SEMIOTIC_TAG) == len(text_for_audio_based["audio_selected"])
+
+        for selected_option in text_for_audio_based["audio_selected"]:
+            normalized_text = normalized_text.replace(SEMIOTIC_TAG, selected_option, 1)
+
+        return text_for_audio_based, normalized_text
 
     def normalize_non_deterministic(
         self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False
@@ -457,22 +450,14 @@ def _normalize_line(
 ):
     line = json.loads(line)
     pred_text = line["pred_text"]
-
-    normalized_texts = normalizer.normalize(
-        text=line["text"], verbose=verbose, n_tagged=n_tagged, punct_post_process=punct_post_process,
-    )
-
-    normalized_texts = set(normalized_texts)
-    normalized_text, cer = normalizer.select_best_match(
-        normalized_texts=normalized_texts,
-        input_text=line["text"],
-        pred_text=pred_text,
+    _, normalized_text = normalizer.normalize(
+        text=line["text"],
         verbose=verbose,
-        remove_punct=remove_punct,
-        cer_threshold=cer_threshold,
+        n_tagged=n_tagged,
+        punct_post_process=punct_post_process,
+        pred_text=pred_text,
     )
     line["nemo_normalized"] = normalized_text
-    line["CER_nemo_normalized"] = cer
     return line
 
 
@@ -533,10 +518,12 @@ def normalize_manifest(
     tmp_dir = output_filename.replace(".json", "_parts")
     os.makedirs(tmp_dir, exist_ok=True)
 
-    Parallel(n_jobs=n_jobs)(
-        delayed(__process_batch)(idx, lines[i : i + batch], tmp_dir)
-        for idx, i in enumerate(range(0, len(lines), batch))
-    )
+    # Parallel(n_jobs=n_jobs)(
+    #     delayed(__process_batch)(idx, lines[i : i + batch], tmp_dir)
+    #     for idx, i in enumerate(range(0, len(lines), batch))
+    # )
+
+    [__process_batch(idx, lines[i : i + batch], tmp_dir) for idx, i in enumerate(range(0, len(lines), batch))]
 
     # aggregate all intermediate files
     with open(output_filename, "w") as f_out:
@@ -575,29 +562,26 @@ if __name__ == "__main__":
                 punct_post_process=not args.no_punct_post_process,
             )
 
-        import pdb
-
-        pdb.set_trace()
-        if args.audio_data:
-            # asr_model = get_asr_model(args.model)
-            # pred_text = asr_model.transcribe([args.audio_data])[0]
-            pred_text = "this example number fifteen thousand can be a very lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
-            normalized_text, cer = normalizer.select_best_match(
-                normalized_texts=normalized_texts,
-                pred_text=pred_text,
-                input_text=args.text,
-                verbose=args.verbose,
-                remove_punct=not args.no_remove_punct_for_cer,
-                cer_threshold=args.cer_threshold,
-            )
-            print(f"Transcript: {pred_text}")
-            print(f"Normalized: {normalized_text}")
-        else:
-            print("Normalization options:")
-            for norm_text in normalized_texts:
-                print(norm_text)
-    elif not os.path.exists(args.audio_data):
-        raise ValueError(f"{args.audio_data} not found.")
+    #     if args.audio_data:
+    #         # asr_model = get_asr_model(args.model)
+    #         # pred_text = asr_model.transcribe([args.audio_data])[0]
+    #         pred_text = "this example number fifteen thousand can be a very lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
+    #         normalized_text, cer = normalizer.select_best_match(
+    #             normalized_texts=normalized_texts,
+    #             pred_text=pred_text,
+    #             input_text=args.text,
+    #             verbose=args.verbose,
+    #             remove_punct=not args.no_remove_punct_for_cer,
+    #             cer_threshold=args.cer_threshold,
+    #         )
+    #         print(f"Transcript: {pred_text}")
+    #         print(f"Normalized: {normalized_text}")
+    #     else:
+    #         print("Normalization options:")
+    #         for norm_text in normalized_texts:
+    #             print(norm_text)
+    # elif not os.path.exists(args.audio_data):
+    #     raise ValueError(f"{args.audio_data} not found.")
     elif args.audio_data.endswith('.json'):
         normalizer = NormalizerWithAudio(
             input_case=args.input_case,
