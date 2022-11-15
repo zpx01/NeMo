@@ -122,6 +122,27 @@ class NormalizerWithAudio(Normalizer):
 
         self.lm = lm
 
+
+    def _process_semiotic_span(self, semiotic_span, pred_text, n_tagged, punct_post_process, verbose):
+        try:
+            options = self.normalize_non_deterministic(
+                text=semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose
+            )
+        except:
+            # TODO: fall back to the default normalization -> restore from the alignment
+            options = ["DEFAULT"]
+
+        best_option, cer = self.select_best_match(
+            normalized_texts=options,
+            input_text=semiotic_span,
+            pred_text=pred_text,
+            verbose=verbose,
+        )
+        return best_option
+        # text_for_audio_based["options"].append(options)
+        # text_for_audio_based["audio_selected"].append(best_option)
+        # text_for_audio_based["cer"].append(cer)
+
     def normalize(
         self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False, pred_text: str = None
     ) -> str:
@@ -140,7 +161,7 @@ class NormalizerWithAudio(Normalizer):
         """
 
         if len(text.split()) > 500:
-            raise ValueError(
+            print(
                 "Your input is too long. Please split up the input into sentences, "
                 "or strings with fewer than 500 words"
             )
@@ -148,30 +169,42 @@ class NormalizerWithAudio(Normalizer):
         text_norm_determinstic = super().normalize(
             text=text, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
         )
+
+        start_time = time.time()
         text_for_audio_based = get_alignment(text, text_norm_determinstic, pred_text)
+        print(f'Alignment generation time: {round((time.time() - start_time) / 60, 2)} min.')
+
         # if pred_text is None: just return normalizations
 
-        text_for_audio_based["options"] = []
-        text_for_audio_based["audio_selected"] = []
-        text_for_audio_based["cer"] = []
-        for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"]):
-            try:
-                options = self.normalize_non_deterministic(
-                    text=semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose
-                )
-            except:
-                # TODO: fall back to the default normalization -> restore from the alignment
-                options = ["DEFAULT"]
+        # text_for_audio_based["options"] = []
+        # text_for_audio_based["audio_selected"] = []
+        # text_for_audio_based["cer"] = []
 
-            text_for_audio_based["options"].append(options)
-            best_option, cer = self.select_best_match(
-                normalized_texts=options,
-                input_text=semiotic_span,
-                pred_text=text_for_audio_based["pred_text"][idx],
-                verbose=verbose,
-            )
-            text_for_audio_based["audio_selected"].append(best_option)
-            text_for_audio_based["cer"].append(cer)
+        start_time = time.time()
+        Parallel(n_jobs=args.n_jobs)(
+            delayed(self._process_semiotic_span)(semiotic_span, text_for_audio_based["pred_text"][idx], n_tagged, punct_post_process, verbose)
+            for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"])
+        )
+        print(f'Audio-based TN time: {round((time.time() - start_time) / 60, 2)} min.')
+
+        # for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"]):
+        #     try:
+        #         options = self.normalize_non_deterministic(
+        #             text=semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose
+        #         )
+        #     except:
+        #         # TODO: fall back to the default normalization -> restore from the alignment
+        #         options = ["DEFAULT"]
+        #
+        #     text_for_audio_based["options"].append(options)
+        #     best_option, cer = self.select_best_match(
+        #         normalized_texts=options,
+        #         input_text=semiotic_span,
+        #         pred_text=text_for_audio_based["pred_text"][idx],
+        #         verbose=verbose,
+        #     )
+        #     text_for_audio_based["audio_selected"].append(best_option)
+        #     text_for_audio_based["cer"].append(cer)
 
         if verbose:
             for k, v in semiotic_spans.items():
@@ -180,7 +213,6 @@ class NormalizerWithAudio(Normalizer):
                 print("=" * 40)
 
         normalized_text = text_for_audio_based["standard"]
-
         assert normalized_text.count(SEMIOTIC_TAG) == len(text_for_audio_based["audio_selected"])
 
         for selected_option in text_for_audio_based["audio_selected"]:
