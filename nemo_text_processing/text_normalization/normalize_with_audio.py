@@ -172,7 +172,7 @@ class NormalizerWithAudio(Normalizer):
 
         start_time = time.time()
         text_for_audio_based = get_alignment(text, text_norm_determinstic, pred_text)
-        print(f'Alignment generation time: {round((time.time() - start_time) / 60, 2)} min.')
+        # print(f'Alignment generation time: {round((time.time() - start_time) / 60, 2)} min.')
 
         # if pred_text is None: just return normalizations
 
@@ -181,30 +181,16 @@ class NormalizerWithAudio(Normalizer):
         # text_for_audio_based["cer"] = []
 
         start_time = time.time()
-        Parallel(n_jobs=args.n_jobs)(
-            delayed(self._process_semiotic_span)(semiotic_span, text_for_audio_based["pred_text"][idx], n_tagged, punct_post_process, verbose)
-            for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"])
-        )
-        print(f'Audio-based TN time: {round((time.time() - start_time) / 60, 2)} min.')
+        # Parallel(n_jobs=args.n_jobs)(
+        #     delayed(self._process_semiotic_span)(semiotic_span, text_for_audio_based["pred_text"][idx], n_tagged, punct_post_process, verbose)
+        #     for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"])
+        # )
 
-        # for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"]):
-        #     try:
-        #         options = self.normalize_non_deterministic(
-        #             text=semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose
-        #         )
-        #     except:
-        #         # TODO: fall back to the default normalization -> restore from the alignment
-        #         options = ["DEFAULT"]
-        #
-        #     text_for_audio_based["options"].append(options)
-        #     best_option, cer = self.select_best_match(
-        #         normalized_texts=options,
-        #         input_text=semiotic_span,
-        #         pred_text=text_for_audio_based["pred_text"][idx],
-        #         verbose=verbose,
-        #     )
-        #     text_for_audio_based["audio_selected"].append(best_option)
-        #     text_for_audio_based["cer"].append(cer)
+        non_deter_output = []
+        for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"]):
+            non_deter_output.append(self._process_semiotic_span(semiotic_span, text_for_audio_based["pred_text"][idx], n_tagged, punct_post_process, verbose))
+
+        # print(f'Audio-based TN time: {round((time.time() - start_time) / 60, 2)} min.')
 
         if verbose:
             for k, v in semiotic_spans.items():
@@ -213,9 +199,9 @@ class NormalizerWithAudio(Normalizer):
                 print("=" * 40)
 
         normalized_text = text_for_audio_based["standard"]
-        assert normalized_text.count(SEMIOTIC_TAG) == len(text_for_audio_based["audio_selected"])
+        assert normalized_text.count(SEMIOTIC_TAG) == len(non_deter_output)
 
-        for selected_option in text_for_audio_based["audio_selected"]:
+        for selected_option in non_deter_output:
             normalized_text = normalized_text.replace(SEMIOTIC_TAG, selected_option, 1)
 
         return text_for_audio_based, normalized_text
@@ -550,12 +536,12 @@ def normalize_manifest(
     tmp_dir = output_filename.replace(".json", "_parts")
     os.makedirs(tmp_dir, exist_ok=True)
 
-    # Parallel(n_jobs=n_jobs)(
-    #     delayed(__process_batch)(idx, lines[i : i + batch], tmp_dir)
-    #     for idx, i in enumerate(range(0, len(lines), batch))
-    # )
+    Parallel(n_jobs=n_jobs)(
+        delayed(__process_batch)(idx, lines[i : i + batch], tmp_dir)
+        for idx, i in enumerate(range(0, len(lines), batch))
+    )
 
-    [__process_batch(idx, lines[i : i + batch], tmp_dir) for idx, i in enumerate(range(0, len(lines), batch))]
+    # [__process_batch(idx, lines[i : i + batch], tmp_dir) for idx, i in enumerate(range(0, len(lines), batch))]
 
     # aggregate all intermediate files
     with open(output_filename, "w") as f_out:
