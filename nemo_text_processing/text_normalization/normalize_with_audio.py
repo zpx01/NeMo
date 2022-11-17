@@ -21,9 +21,16 @@ from typing import List, Optional, Tuple
 
 import pynini
 from joblib import Parallel, delayed
+from nemo_text_processing.fst_alignment.alignment import (
+    create_symbol_table,
+    get_string_alignment,
+    get_word_segments,
+    indexed_map_to_output,
+)
 from nemo_text_processing.text_normalization.data_loader_utils import post_process_punct, pre_process
 from nemo_text_processing.text_normalization.normalize import Normalizer
-from nemo_text_processing.text_normalization.utils_audio_based import SEMIOTIC_TAG, get_alignment
+from nemo_text_processing.text_normalization.utils_audio_based import SEMIOTIC_TAG, get_alignment, get_semiotic_spans
+from pynini import Far
 from pynini.lib import rewrite
 from tqdm import tqdm
 
@@ -120,10 +127,19 @@ class NormalizerWithAudio(Normalizer):
             post_process=post_process,
         )
 
+        fst_tc = f"{cache_dir}/en_tn_True_deterministic_cased__tokenize.far"
+        fst_ver = f"{cache_dir}/en_tn_True_deterministic_verbalizer.far"
+        fst_punct_post = f"{cache_dir}/en_tn_post_processing.far"
+        fst_tc = Far(fst_tc, mode='r')['tokenize_and_classify']
+        fst_ver = Far(fst_ver, mode='r')['verbalize']
+        fst_punct_post = Far(fst_punct_post, mode='r')['post_process_graph']
+        self.merged_tn_deterministic_graph = (fst_tc @ fst_ver) @ fst_punct_post
+        self.symbol_table = create_symbol_table()
         self.lm = lm
 
-
-    def _process_semiotic_span(self, semiotic_span, pred_text, n_tagged, punct_post_process, verbose):
+    def _process_semiotic_span(
+        self, semiotic_span, pred_text, n_tagged, punct_post_process, verbose, cer_threshold=100
+    ):
         try:
             options = self.normalize_non_deterministic(
                 text=semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose
@@ -132,11 +148,16 @@ class NormalizerWithAudio(Normalizer):
             # TODO: fall back to the default normalization -> restore from the alignment
             options = ["DEFAULT"]
 
+        print("=" * 40)
+        print(semiotic_span)
+        [print(x) for x in options]
+
         best_option, cer = self.select_best_match(
             normalized_texts=options,
             input_text=semiotic_span,
             pred_text=pred_text,
             verbose=verbose,
+            cer_threshold=cer_threshold,
         )
         return best_option
         # text_for_audio_based["options"].append(options)
@@ -159,19 +180,53 @@ class NormalizerWithAudio(Normalizer):
         Returns:
             normalized text options (usually there are multiple ways of normalizing a given semiotic class)
         """
-
+        print("HERE")
         if len(text.split()) > 500:
             print(
                 "Your input is too long. Please split up the input into sentences, "
                 "or strings with fewer than 500 words"
             )
 
-        text_norm_determinstic = super().normalize(
-            text=text, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
-        )
+        text = "This, example: number 15,100 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01. And can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
+        pred_text = "this w example nuber viteen thousand can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
+        text_list = self.split_text_into_sentences(text)
 
-        start_time = time.time()
-        text_for_audio_based = get_alignment(text, text_norm_determinstic, pred_text)
+        text_norm_determinstic_list = []
+        semiotic_spans = []
+        det_norm_list = []
+        masked_idx_list = []
+        for i in range(len(text_list)):
+            t = text_list[i]
+            cur_det_norm = super().normalize(
+                text=t, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
+            )
+            text_norm_determinstic_list.append(cur_det_norm)
+            if t != cur_det_norm:
+                diff, cur_sem_span, text_list[i], cur_masked_idx = get_semiotic_spans(t, cur_det_norm)
+                masked_idx_list.append(cur_masked_idx)
+                det_norm_list.append(cur_det_norm)
+                semiotic_spans.append(cur_sem_span)
+            else:
+                # TODO refactor to avoid this
+                semiotic_spans.append([])
+                det_norm_list.append([])
+
+        # # run deterministic TN to get the alignments
+        # alignment, text_norm_deterministic = get_string_alignment(
+        #     fst=self.merged_tn_deterministic_graph, input_text=text, symbol_table=self.symbol_table
+        # )
+        # indices = get_word_segments(text)
+        # for x in indices:
+        #     start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
+        #     print(f"inp indices: [{x[0]}:{x[1]}] out indices: [{start}:{end}]")
+        #     print(f"in: |{text[x[0]:x[1]]}| out: |{text_norm_deterministic[start:end]}|")
+        #
+        import pdb
+
+        pdb.set_trace()
+
+        # start_time = time.time()
+        # text_for_audio_based = get_alignment(text, text_norm_determinstic, pred_text)
         # print(f'Alignment generation time: {round((time.time() - start_time) / 60, 2)} min.')
 
         # if pred_text is None: just return normalizations
@@ -187,8 +242,15 @@ class NormalizerWithAudio(Normalizer):
         # )
 
         non_deter_output = []
-        for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"]):
-            non_deter_output.append(self._process_semiotic_span(semiotic_span, text_for_audio_based["pred_text"][idx], n_tagged, punct_post_process, verbose))
+        for cur_semiotic_spans in semiotic_spans:
+            cur_non_deter_output = []
+            for cur_span in cur_semiotic_spans:
+                cur_non_deter_output.append(
+                    self._process_semiotic_span(
+                        cur_span, pred_text, n_tagged, punct_post_process, verbose, cer_threshold=-1
+                    )
+                )
+            non_deter_output.append(cur_non_deter_output)
 
         # print(f'Audio-based TN time: {round((time.time() - start_time) / 60, 2)} min.')
 
@@ -344,7 +406,8 @@ class NormalizerWithAudio(Normalizer):
             pred_text: ASR model transcript of the audio file corresponding to the normalized text
             verbose: whether to print intermediate meta information
             remove_punct: whether to remove punctuation before calculating CER
-            cer_threshold: if CER for pred_text is above the cer_threshold, no normalization will be performed
+            cer_threshold: if CER for pred_text is above the cer_threshold, no normalization will be performed.
+                Set to -1 to disable cer-based filtering
 
         Returns:
             normalized text with the lowest CER and CER value
@@ -356,7 +419,7 @@ class NormalizerWithAudio(Normalizer):
         normalized_texts_cer = sorted(normalized_texts_cer, key=lambda x: x[1])
         normalized_text, cer = normalized_texts_cer[0]
 
-        if cer > cer_threshold:
+        if cer_threshold > 0 and cer > cer_threshold:
             return input_text, cer
 
         if verbose:
@@ -573,12 +636,13 @@ if __name__ == "__main__":
         if os.path.exists(args.text):
             with open(args.text, 'r') as f:
                 args.text = f.read().strip()
-            semiotic_spans, args.text = normalizer.normalize(
-                text=args.text,
-                verbose=args.verbose,
-                n_tagged=args.n_tagged,
-                punct_post_process=not args.no_punct_post_process,
-            )
+
+        semiotic_spans, args.text = normalizer.normalize(
+            text=args.text,
+            verbose=args.verbose,
+            n_tagged=args.n_tagged,
+            punct_post_process=not args.no_punct_post_process,
+        )
 
     #     if args.audio_data:
     #         # asr_model = get_asr_model(args.model)
