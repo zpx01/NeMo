@@ -13,13 +13,15 @@
 # limitations under the License.
 
 import itertools
+import json
 import os
 import re
 from argparse import ArgumentParser
 from collections import OrderedDict
+from glob import glob
 from math import factorial
 from time import perf_counter
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import pynini
 import regex
@@ -269,7 +271,6 @@ class Normalizer:
                 "WARNING! Your input is too long and could take a long time to normalize."
                 "Use split_text_into_sentences() to make the input shorter and then call normalize_list()."
             )
-
         original_text = text
         if punct_pre_process:
             text = pre_process(text)
@@ -313,6 +314,118 @@ class Normalizer:
                 print("NEMO_NLP collection is not available: skipping punctuation post_processing")
 
         return output
+
+    def normalize_line(
+        self,
+        line: str,
+        verbose: bool = False,
+        punct_pre_process=False,
+        punct_post_process=True,
+        text_field: str = "text",
+        output_field: str = "nemo_normalized",
+    ):
+        line = json.loads(line)
+
+        normalized_text = self.normalize(
+            text=line[text_field],
+            verbose=verbose,
+            punct_pre_process=punct_pre_process,
+            punct_post_process=punct_post_process,
+        )
+        line[output_field] = normalized_text
+        return line
+
+    def normalize_manifest(
+        self,
+        manifest: str,
+        n_jobs: int,
+        punct_pre_process: bool,
+        punct_post_process: bool,
+        batch_size: int,
+        output_filename: Optional[str] = None,
+    ):
+        """
+        Args:
+            args.audio_data: path to .json manifest file.
+        """
+
+        def _process_batch(
+            batch_idx: int,
+            batch: List[str],
+            dir_name: str,
+            punct_pre_process=False,
+            punct_post_process=True,
+            text_field: str = "text",
+            output_field: str = "normalized",
+        ):
+            """
+            Normalizes batch of text sequences
+            Args:
+                batch: list of texts
+                batch_idx: batch index
+                dir_name: path to output directory to save results
+            """
+            normalized_lines = [
+                self.normalize_line(
+                    line=line,
+                    verbose=False,
+                    punct_post_process=punct_post_process,
+                    punct_pre_process=punct_pre_process,
+                    text_field=text_field,
+                    output_field=output_field,
+                )
+                for line in tqdm(batch)
+            ]
+
+            with open(f"{dir_name}/{batch_idx:06}.json", "w") as f_out:
+                for line in normalized_lines:
+                    f_out.write(json.dumps(line, ensure_ascii=False) + '\n')
+
+            print(f"Batch -- {batch_idx} -- is complete")
+
+        if output_filename is None:
+            output_filename = manifest.replace('.json', '_normalized.json')
+
+        with open(manifest, 'r') as f:
+            lines = f.readlines()
+
+        print(f'Normalizing {len(lines)} lines of {manifest}...')
+
+        # to save intermediate results to a file
+        batch = min(len(lines), batch_size)
+
+        tmp_dir = output_filename.replace(".json", "_parts")
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        Parallel(n_jobs=n_jobs)(
+            delayed(_process_batch)(
+                idx,
+                lines[i : i + batch],
+                tmp_dir,
+                punct_pre_process=punct_pre_process,
+                punct_post_process=punct_post_process,
+            )
+            for idx, i in enumerate(range(0, len(lines), batch))
+        )
+
+        # [_process_batch(idx, lines[i: i + batch], tmp_dir, punct_pre_process=punct_pre_process, punct_post_process=punct_post_process) for idx, i in enumerate(range(0, len(lines), batch))]
+
+        # aggregate all intermediate files
+        with open(output_filename, "w") as f_out:
+            for batch_f in sorted(glob(f"{tmp_dir}/*.json")):
+                with open(batch_f, "r") as f_in:
+                    # lines = f_in.read()
+
+                    for line in f_in:
+                        line = json.loads(line)
+                        if line["normalized"] != line["text"]:
+                            line["qn_pred_text"] = line["pred_text"]
+                            line["pred_text"] = line["normalized"]
+                            del line["normalized"]
+                            f_out.write(json.dumps(line, ensure_ascii=False) + '\n')
+                    # f_out.write(lines)
+
+        print(f'Normalized version saved at {output_filename}')
 
     def split_text_into_sentences(self, text: str) -> List[str]:
         """
@@ -491,6 +604,8 @@ def parse_args():
         default=None,
         type=str,
     )
+    parser.add_argument("--n_jobs", default=-2, type=int, help="The maximum number of concurrently running jobs")
+    parser.add_argument("--batch_size", default=200, type=int, help="Number of examples for each process")
     return parser.parse_args()
 
 
@@ -520,20 +635,31 @@ if __name__ == "__main__":
             )
         )
     elif args.input_file:
-        print("Loading data: " + args.input_file)
-        data = load_file(args.input_file)
+        if args.input_file.endswith(".json"):
+            normalizer.normalize_manifest(
+                args.input_file,
+                n_jobs=args.n_jobs,
+                punct_pre_process=args.punct_pre_process,
+                punct_post_process=args.punct_post_process,
+                batch_size=args.batch_size,
+                output_filename=args.output_file,
+            )
 
-        print("- Data: " + str(len(data)) + " sentences")
-        normalizer_prediction = normalizer.normalize_list(
-            data,
-            verbose=args.verbose,
-            punct_pre_process=args.punct_pre_process,
-            punct_post_process=args.punct_post_process,
-        )
-        if args.output_file:
-            write_file(args.output_file, normalizer_prediction)
-            print(f"- Normalized. Writing out to {args.output_file}")
         else:
-            print(normalizer_prediction)
+            print("Loading data: " + args.input_file)
+            data = load_file(args.input_file)
+
+            print("- Data: " + str(len(data)) + " sentences")
+            normalizer_prediction = normalizer.normalize_list(
+                data,
+                verbose=args.verbose,
+                punct_pre_process=args.punct_pre_process,
+                punct_post_process=args.punct_post_process,
+            )
+            if args.output_file:
+                write_file(args.output_file, normalizer_prediction)
+                print(f"- Normalized. Writing out to {args.output_file}")
+            else:
+                print(normalizer_prediction)
 
     print(f"Execution time: {perf_counter() - start_time:.02f} sec")

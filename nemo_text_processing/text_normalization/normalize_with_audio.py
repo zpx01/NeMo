@@ -19,6 +19,7 @@ from argparse import ArgumentParser
 from glob import glob
 from typing import List, Optional, Tuple
 
+import Levenshtein
 import pynini
 from joblib import Parallel, delayed
 from nemo_text_processing.fst_alignment.alignment import (
@@ -35,8 +36,8 @@ from pynini.lib import rewrite
 from tqdm import tqdm
 
 try:
-    from nemo.collections.asr.metrics.wer import word_error_rate
-    from nemo.collections.asr.models import ASRModel
+    # from nemo.collections.asr.metrics.wer import word_error_rate
+    # from nemo.collections.asr.models import ASRModel
 
     ASR_AVAILABLE = True
 except (ModuleNotFoundError, ImportError):
@@ -180,93 +181,96 @@ class NormalizerWithAudio(Normalizer):
         Returns:
             normalized text options (usually there are multiple ways of normalizing a given semiotic class)
         """
-        print("HERE")
+        text_list = [text]
         if len(text.split()) > 500:
             print(
                 "Your input is too long. Please split up the input into sentences, "
                 "or strings with fewer than 500 words"
             )
 
-        text = "This, example: number 15,100 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01. And can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
-        pred_text = "this w example nuber viteen thousand can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
-        text_list = self.split_text_into_sentences(text)
+            text_list = self.split_text_into_sentences(text)
 
-        text_norm_determinstic_list = []
         semiotic_spans = []
-        det_norm_list = []
+        semiotic_spans_det_norm = []
         masked_idx_list = []
         for i in range(len(text_list)):
             t = text_list[i]
             cur_det_norm = super().normalize(
                 text=t, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
             )
-            text_norm_determinstic_list.append(cur_det_norm)
             if t != cur_det_norm:
-                diff, cur_sem_span, text_list[i], cur_masked_idx = get_semiotic_spans(t, cur_det_norm)
+                diff, cur_sem_span, text_list[i], cur_masked_idx, cur_det_norm = get_semiotic_spans(t, cur_det_norm)
                 masked_idx_list.append(cur_masked_idx)
-                det_norm_list.append(cur_det_norm)
+                semiotic_spans_det_norm.append(cur_det_norm)
                 semiotic_spans.append(cur_sem_span)
             else:
                 # TODO refactor to avoid this
                 semiotic_spans.append([])
-                det_norm_list.append([])
+                semiotic_spans_det_norm.append([])
 
-        # # run deterministic TN to get the alignments
-        # alignment, text_norm_deterministic = get_string_alignment(
-        #     fst=self.merged_tn_deterministic_graph, input_text=text, symbol_table=self.symbol_table
-        # )
-        # indices = get_word_segments(text)
-        # for x in indices:
-        #     start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
-        #     print(f"inp indices: [{x[0]}:{x[1]}] out indices: [{start}:{end}]")
-        #     print(f"in: |{text[x[0]:x[1]]}| out: |{text_norm_deterministic[start:end]}|")
-        #
-        import pdb
+        # no semiotic spans
+        if sum([len(x) for x in semiotic_spans]) == 0:
+            normalized_text = ""
+            for sent in text_list:
+                normalized_text += " ".join(sent)
+            return normalized_text
 
-        pdb.set_trace()
+        # replace all but the target with det_norm option
+        for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
+            for i, semiotic_idx in enumerate(cur_masked_idx_list):
+                text_list[sent_idx][semiotic_idx] = semiotic_spans_det_norm[sent_idx][i]
 
-        # start_time = time.time()
-        # text_for_audio_based = get_alignment(text, text_norm_determinstic, pred_text)
-        # print(f'Alignment generation time: {round((time.time() - start_time) / 60, 2)} min.')
-
-        # if pred_text is None: just return normalizations
-
-        # text_for_audio_based["options"] = []
-        # text_for_audio_based["audio_selected"] = []
-        # text_for_audio_based["cer"] = []
-
-        start_time = time.time()
-        # Parallel(n_jobs=args.n_jobs)(
-        #     delayed(self._process_semiotic_span)(semiotic_span, text_for_audio_based["pred_text"][idx], n_tagged, punct_post_process, verbose)
-        #     for idx, semiotic_span in enumerate(text_for_audio_based["semiotic"])
-        # )
-
-        non_deter_output = []
-        for cur_semiotic_spans in semiotic_spans:
-            cur_non_deter_output = []
-            for cur_span in cur_semiotic_spans:
-                cur_non_deter_output.append(
-                    self._process_semiotic_span(
-                        cur_span, pred_text, n_tagged, punct_post_process, verbose, cer_threshold=-1
+        # create texts to compare against pred_text, all but the current semiotic span use default normalization option # TODO - use the best for processed spans?
+        texts_for_cer = []
+        audio_based_options = []
+        for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
+            texts_for_cer_sent = []
+            audio_based_options_sent = []
+            for i in range(len(cur_masked_idx_list)):
+                try:
+                    options = self.normalize_non_deterministic(
+                        text=semiotic_spans[sent_idx][i],
+                        n_tagged=n_tagged,
+                        punct_post_process=punct_post_process,
+                        verbose=verbose,
                     )
+                except:
+                    options = semiotic_spans_det_norm[sent_idx][i]
+
+                # replace default normalization options for the current span with each possible audio-based option
+                cur_texts_for_cer = []
+                cur_audio_based_options = []
+                for option in options:
+                    cur_audio_based_options.append(option)
+                    semiotic_idx = cur_masked_idx_list[i]
+                    cur_text = text_list[sent_idx][:semiotic_idx] + [option] + text_list[sent_idx][semiotic_idx + 1 :]
+                    cur_texts_for_cer.append(" ".join(cur_text))
+                texts_for_cer_sent.append(cur_texts_for_cer)
+                audio_based_options_sent.append(cur_audio_based_options)
+            texts_for_cer.append(texts_for_cer_sent)
+            audio_based_options.append(audio_based_options_sent)
+
+        selected_options = []
+        for sent_idx, cur_sent in enumerate(texts_for_cer):
+            cur_sentences_options = []
+            for idx, norm_options in enumerate(cur_sent):
+                best_option, cer, best_idx = self.select_best_match(
+                    normalized_texts=norm_options,
+                    input_text=" ".join(text_list[sent_idx]),
+                    pred_text=pred_text,
+                    verbose=verbose,
+                    cer_threshold=-1,
                 )
-            non_deter_output.append(cur_non_deter_output)
+                cur_sentences_options.append(audio_based_options[sent_idx][idx][best_idx])
+            selected_options.append(cur_sentences_options)
 
-        # print(f'Audio-based TN time: {round((time.time() - start_time) / 60, 2)} min.')
+        normalized_text = ""
+        for sent_idx in range(len(text_list)):
+            for i, semiotic_idx in enumerate(masked_idx_list[sent_idx]):
+                text_list[sent_idx][semiotic_idx] = selected_options[sent_idx][i]
 
-        if verbose:
-            for k, v in semiotic_spans.items():
-                print(k)
-                print(v)
-                print("=" * 40)
-
-        normalized_text = text_for_audio_based["standard"]
-        assert normalized_text.count(SEMIOTIC_TAG) == len(non_deter_output)
-
-        for selected_option in non_deter_output:
-            normalized_text = normalized_text.replace(SEMIOTIC_TAG, selected_option, 1)
-
-        return text_for_audio_based, normalized_text
+            normalized_text += " ".join(text_list[sent_idx])
+        return normalized_text
 
     def normalize_non_deterministic(
         self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False
@@ -416,8 +420,9 @@ class NormalizerWithAudio(Normalizer):
             return input_text, cer_threshold
 
         normalized_texts_cer = calculate_cer(normalized_texts, pred_text, remove_punct)
+
         normalized_texts_cer = sorted(normalized_texts_cer, key=lambda x: x[1])
-        normalized_text, cer = normalized_texts_cer[0]
+        normalized_text, cer, idx = normalized_texts_cer[-1]
 
         if cer_threshold > 0 and cer > cer_threshold:
             return input_text, cer
@@ -427,7 +432,7 @@ class NormalizerWithAudio(Normalizer):
             for option in normalized_texts:
                 print(option)
             print('-' * 30)
-        return normalized_text, cer
+        return normalized_text, cer, idx
 
 
 def calculate_cer(normalized_texts: List[str], pred_text: str, remove_punct=False) -> List[Tuple[str, float]]:
@@ -441,13 +446,15 @@ def calculate_cer(normalized_texts: List[str], pred_text: str, remove_punct=Fals
     Returns: normalized options with corresponding CER
     """
     normalized_options = []
-    for text in normalized_texts:
+    for i, text in enumerate(normalized_texts):
         text_clean = text.replace('-', ' ').lower()
         if remove_punct:
             for punct in "!?:;,.-()*+-/<=>@^_":
                 text_clean = text_clean.replace(punct, " ").replace("  ", " ")
-        cer = round(word_error_rate([pred_text], [text_clean], use_cer=True) * 100, 2)
-        normalized_options.append((text, cer))
+
+        cer = Levenshtein.ratio(text_clean, pred_text)
+        # cer = round(word_error_rate([pred_text], [text_clean], use_cer=True) * 100, 2)
+        normalized_options.append((text, cer, i))
     return normalized_options
 
 
@@ -530,13 +537,13 @@ def _normalize_line(
     normalizer: NormalizerWithAudio, n_tagged, verbose, line: str, remove_punct, punct_post_process, cer_threshold
 ):
     line = json.loads(line)
-    pred_text = line["pred_text"]
-    _, normalized_text = normalizer.normalize(
+
+    normalized_text = normalizer.normalize(
         text=line["text"],
         verbose=verbose,
         n_tagged=n_tagged,
         punct_post_process=punct_post_process,
-        pred_text=pred_text,
+        pred_text=line["pred_text"],
     )
     line["nemo_normalized"] = normalized_text
     return line
