@@ -49,12 +49,16 @@ class SerialFst(GraphFst):
             The serial is a combination of digits, letters and dashes, e.g.:
             c325b -> tokens { cardinal { integer: "c three two five b" } }
         """
-        num_graph = pynini.compose(NEMO_DIGIT ** (6, ...), cardinal.single_digits_graph).optimize()
-        num_graph |= pynini.compose(NEMO_DIGIT ** (1, 5), cardinal.graph).optimize()
-        # to handle numbers starting with zero
-        num_graph |= pynini.compose(
-            pynini.accep("0") + pynini.closure(NEMO_DIGIT), cardinal.single_digits_graph
-        ).optimize()
+        if deterministic:
+            num_graph = pynini.compose(NEMO_DIGIT ** (6, ...), cardinal.single_digits_graph).optimize()
+            num_graph |= pynini.compose(NEMO_DIGIT ** (1, 5), cardinal.graph).optimize()
+            # to handle numbers starting with zero
+            num_graph |= pynini.compose(
+                pynini.accep("0") + pynini.closure(NEMO_DIGIT), cardinal.single_digits_graph
+            ).optimize()
+        else:
+            num_graph = cardinal.final_graph
+
         # TODO: "#" doesn't work from the file
         symbols_graph = pynini.string_file(get_abs_path("data/whitelist/symbol.tsv")).optimize() | pynini.cross(
             "#", "hash"

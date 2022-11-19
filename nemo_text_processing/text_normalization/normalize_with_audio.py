@@ -14,6 +14,7 @@
 
 import json
 import os
+import shutil
 import time
 from argparse import ArgumentParser
 from glob import glob
@@ -181,6 +182,7 @@ class NormalizerWithAudio(Normalizer):
         Returns:
             normalized text options (usually there are multiple ways of normalizing a given semiotic class)
         """
+
         text_list = [text]
         if len(text.split()) > 500:
             print(
@@ -190,6 +192,7 @@ class NormalizerWithAudio(Normalizer):
 
             text_list = self.split_text_into_sentences(text)
 
+        start_time = time.time()
         semiotic_spans = []
         semiotic_spans_det_norm = []
         masked_idx_list = []
@@ -199,27 +202,48 @@ class NormalizerWithAudio(Normalizer):
                 text=t, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
             )
             if t != cur_det_norm:
-                diff, cur_sem_span, text_list[i], cur_masked_idx, cur_det_norm = get_semiotic_spans(t, cur_det_norm)
+                diff, cur_sem_span, text_list[i], cur_masked_idx, cur_det_norm_ = get_semiotic_spans(t, cur_det_norm)
                 masked_idx_list.append(cur_masked_idx)
-                semiotic_spans_det_norm.append(cur_det_norm)
+                semiotic_spans_det_norm.append(cur_det_norm_)
                 semiotic_spans.append(cur_sem_span)
             else:
                 # TODO refactor to avoid this
+                text_list[i] = t.split()
+                masked_idx_list.append([])
                 semiotic_spans.append([])
                 semiotic_spans_det_norm.append([])
+        try:
+            # no semiotic spans
+            if sum([len(x) for x in semiotic_spans]) == 0:
+                normalized_text = ""
+                for sent in text_list:
+                    normalized_text += " ".join(sent)
+                return normalized_text
+        except Exception as e:
+            print(sent)
+            print(normalized_text)
+            print(f"ERROR: {e}")
+            import pdb
 
-        # no semiotic spans
-        if sum([len(x) for x in semiotic_spans]) == 0:
-            normalized_text = ""
-            for sent in text_list:
-                normalized_text += " ".join(sent)
-            return normalized_text
+            pdb.set_trace()
+            print()
+        print(f'done with semiotic spans: {round((time.time() - start_time) / 60, 2)} min.')
+        # import pdb; pdb.set_trace()
+        try:
+            start_time = time.time()
+            # replace all but the target with det_norm option
+            for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
+                for i, semiotic_idx in enumerate(cur_masked_idx_list):
+                    text_list[sent_idx][semiotic_idx] = semiotic_spans_det_norm[sent_idx][i]
+        except:
+            import pdb
 
-        # replace all but the target with det_norm option
-        for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
-            for i, semiotic_idx in enumerate(cur_masked_idx_list):
-                text_list[sent_idx][semiotic_idx] = semiotic_spans_det_norm[sent_idx][i]
+            pdb.set_trace()
+            print()
 
+        # print(f'done with text replacements with default TN: {round((time.time() - start_time) / 60, 2)} min.')
+
+        start_time = time.time()
         # create texts to compare against pred_text, all but the current semiotic span use default normalization option # TODO - use the best for processed spans?
         texts_for_cer = []
         audio_based_options = []
@@ -249,7 +273,9 @@ class NormalizerWithAudio(Normalizer):
                 audio_based_options_sent.append(cur_audio_based_options)
             texts_for_cer.append(texts_for_cer_sent)
             audio_based_options.append(audio_based_options_sent)
+        # print(f'Done with audio-based options generation: {round((time.time() - start_time) / 60, 2)} min.')
 
+        start_time = time.time()
         selected_options = []
         for sent_idx, cur_sent in enumerate(texts_for_cer):
             cur_sentences_options = []
@@ -263,13 +289,16 @@ class NormalizerWithAudio(Normalizer):
                 )
                 cur_sentences_options.append(audio_based_options[sent_idx][idx][best_idx])
             selected_options.append(cur_sentences_options)
+        # print(f'scores calculation: {round((time.time() - start_time) / 60, 2)} min.')
 
+        start_time = time.time()
         normalized_text = ""
         for sent_idx in range(len(text_list)):
             for i, semiotic_idx in enumerate(masked_idx_list[sent_idx]):
                 text_list[sent_idx][semiotic_idx] = selected_options[sent_idx][i]
 
             normalized_text += " ".join(text_list[sent_idx])
+        # print(f'final replacement: {round((time.time() - start_time) / 60, 2)} min.')
         return normalized_text
 
     def normalize_non_deterministic(
@@ -420,7 +449,6 @@ class NormalizerWithAudio(Normalizer):
             return input_text, cer_threshold
 
         normalized_texts_cer = calculate_cer(normalized_texts, pred_text, remove_punct)
-
         normalized_texts_cer = sorted(normalized_texts_cer, key=lambda x: x[1])
         normalized_text, cer, idx = normalized_texts_cer[-1]
 
@@ -603,15 +631,17 @@ def normalize_manifest(
     # to save intermediate results to a file
     batch = min(len(lines), batch_size)
 
-    tmp_dir = output_filename.replace(".json", "_parts")
-    os.makedirs(tmp_dir, exist_ok=True)
+    tmp_dir = "/tmp/parts"
+    if os.path.exists(tmp_dir):
+        shutil.rmtree(tmp_dir)
+    os.makedirs(tmp_dir)
 
-    Parallel(n_jobs=n_jobs)(
-        delayed(__process_batch)(idx, lines[i : i + batch], tmp_dir)
-        for idx, i in enumerate(range(0, len(lines), batch))
-    )
+    # Parallel(n_jobs=n_jobs)(
+    #     delayed(__process_batch)(idx, lines[i : i + batch], tmp_dir)
+    #     for idx, i in enumerate(range(0, len(lines), batch))
+    # )
 
-    # [__process_batch(idx, lines[i : i + batch], tmp_dir) for idx, i in enumerate(range(0, len(lines), batch))]
+    [__process_batch(idx, lines[i : i + batch], tmp_dir) for idx, i in enumerate(range(0, len(lines), batch))]
 
     # aggregate all intermediate files
     with open(output_filename, "w") as f_out:
@@ -644,12 +674,14 @@ if __name__ == "__main__":
             with open(args.text, 'r') as f:
                 args.text = f.read().strip()
 
-        semiotic_spans, args.text = normalizer.normalize(
+        options = normalizer.normalize_non_deterministic(
             text=args.text,
-            verbose=args.verbose,
             n_tagged=args.n_tagged,
             punct_post_process=not args.no_punct_post_process,
+            verbose=args.verbose,
         )
+        for option in options:
+            print(option)
 
     #     if args.audio_data:
     #         # asr_model = get_asr_model(args.model)

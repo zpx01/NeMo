@@ -104,11 +104,11 @@ class CardinalFst(GraphFst):
             final_graph = (
                 self.graph_with_and
                 | pynutil.add_weight(self.single_digits_graph, 0.0001)
-                | get_four_digit_year_graph()  # allows e.g. 4567 be pronouced as forty five sixty seven
+                | get_four_digit_year_graph()  # allows e.g. 4567 be pronounced as forty five sixty seven
                 | pynutil.add_weight(single_digits_graph_with_commas, 0.0001)
                 | cardinal_with_leading_zeros
             )
-
+        self.final_graph = final_graph
         final_graph = optional_minus_graph + pynutil.insert("integer: \"") + final_graph + pynutil.insert("\"")
         final_graph = self.add_tokens(final_graph)
         self.fst = final_graph.optimize()

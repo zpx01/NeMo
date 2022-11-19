@@ -16,6 +16,7 @@ import itertools
 import json
 import os
 import re
+import shutil
 from argparse import ArgumentParser
 from collections import OrderedDict
 from glob import glob
@@ -394,8 +395,10 @@ class Normalizer:
         # to save intermediate results to a file
         batch = min(len(lines), batch_size)
 
-        tmp_dir = output_filename.replace(".json", "_parts")
-        os.makedirs(tmp_dir, exist_ok=True)
+        tmp_dir = "/tmp/parts"
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        os.makedirs(tmp_dir)
 
         Parallel(n_jobs=n_jobs)(
             delayed(_process_batch)(
