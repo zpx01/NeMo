@@ -196,6 +196,7 @@ class EncDecCTCModelBPE(EncDecCTCModel, ASRBPEMixin):
 
         Args:
             config: A python dictionary which contains the following keys:
+            config: A python dictionary which contains the following keys:
             paths2audio_files: (a list) of paths to audio files. The files should be relatively short fragments. \
                 Recommended length per file is between 5 and 25 seconds.
             batch_size: (int) batch size to use during inference. \

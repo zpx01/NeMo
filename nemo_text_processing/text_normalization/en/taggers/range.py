@@ -95,6 +95,15 @@ class RangeFst(GraphFst):
             for x in ["/", " / "]:
                 range_graph |= cardinal + pynini.closure(pynini.cross(x, " divided by ") + cardinal, 1)
 
+            # 10% to 20% -> ten to twenty percent
+            range_graph |= (
+                cardinal
+                + pynini.closure(pynini.cross("%", " percent"), 0, 1)
+                + pynini.union(" to ", "-", " - ")
+                + cardinal
+                + pynini.cross("%", " percent")
+            )
+
         self.graph |= range_graph
 
         self.graph = self.graph.optimize()

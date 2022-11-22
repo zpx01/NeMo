@@ -192,6 +192,8 @@ class NormalizerWithAudio(Normalizer):
 
             text_list = self.split_text_into_sentences(text)
 
+        text_list = [t for t in text_list if "be somewhere between" in t]
+
         start_time = time.time()
         semiotic_spans = []
         semiotic_spans_det_norm = []
@@ -202,7 +204,7 @@ class NormalizerWithAudio(Normalizer):
                 text=t, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
             )
             if t != cur_det_norm:
-                diff, cur_sem_span, text_list[i], cur_masked_idx, cur_det_norm_ = get_semiotic_spans(t, cur_det_norm)
+                _, cur_sem_span, text_list[i], cur_masked_idx, cur_det_norm_ = get_semiotic_spans(t, cur_det_norm)
                 masked_idx_list.append(cur_masked_idx)
                 semiotic_spans_det_norm.append(cur_det_norm_)
                 semiotic_spans.append(cur_sem_span)
@@ -227,7 +229,7 @@ class NormalizerWithAudio(Normalizer):
 
             pdb.set_trace()
             print()
-        print(f'done with semiotic spans: {round((time.time() - start_time) / 60, 2)} min.')
+        # print(f'done with semiotic spans: {round((time.time() - start_time) / 60, 2)} min.')
         # import pdb; pdb.set_trace()
         try:
             start_time = time.time()
@@ -297,9 +299,9 @@ class NormalizerWithAudio(Normalizer):
             for i, semiotic_idx in enumerate(masked_idx_list[sent_idx]):
                 text_list[sent_idx][semiotic_idx] = selected_options[sent_idx][i]
 
-            normalized_text += " ".join(text_list[sent_idx])
+            normalized_text += " " + " ".join(text_list[sent_idx])
         # print(f'final replacement: {round((time.time() - start_time) / 60, 2)} min.')
-        return normalized_text
+        return normalized_text.replace("  ", " ")
 
     def normalize_non_deterministic(
         self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False
@@ -450,6 +452,9 @@ class NormalizerWithAudio(Normalizer):
 
         normalized_texts_cer = calculate_cer(normalized_texts, pred_text, remove_punct)
         normalized_texts_cer = sorted(normalized_texts_cer, key=lambda x: x[1])
+        # [print(x) for x in normalized_texts_cer]
+        # import pdb; pdb.set_trace()
+
         normalized_text, cer, idx = normalized_texts_cer[-1]
 
         if cer_threshold > 0 and cer > cer_threshold:

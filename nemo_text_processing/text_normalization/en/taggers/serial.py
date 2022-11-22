@@ -67,6 +67,7 @@ class SerialFst(GraphFst):
 
         if not self.deterministic and not lm:
             num_graph |= cardinal.single_digits_graph
+            num_graph |= pynini.compose(num_graph, NEMO_SIGMA + pynutil.delete("hundred ") + NEMO_SIGMA)
             # also allow double digits to be pronounced as integer in serial number
             num_graph |= pynutil.add_weight(
                 NEMO_DIGIT ** 2 @ cardinal.graph_hundred_component_at_least_one_none_zero_digit, weight=0.0001
@@ -135,6 +136,7 @@ class SerialFst(GraphFst):
             ),
             serial_graph,
         )
+
         self.graph = serial_graph.optimize()
         graph = pynutil.insert("name: \"") + convert_space(self.graph).optimize() + pynutil.insert("\"")
         self.fst = graph.optimize()
