@@ -78,8 +78,19 @@ class RangeFst(GraphFst):
 
             # MULTIPLY
             for x in [" x ", "x"]:
-                range_graph |= cardinal + pynini.closure(
-                    pynini.cross(x, pynini.union(" by ", " times ")) + cardinal, 1
+                range_graph |= cardinal + pynini.cross(x, pynini.union(" by ", " times ")) + cardinal
+
+            # 40x -> "40 times" ("40 x" cases is covered in serial)
+            for x in [" x", "x"]:
+                range_graph |= cardinal + pynini.cross(x, " times")
+
+                # 5x to 7x-> five to seven x/times
+                range_graph |= (
+                    cardinal
+                    + pynutil.delete(x)
+                    + pynini.union(" to ", "-", " - ")
+                    + cardinal
+                    + pynini.cross(x, pynini.union(" x", " times"))
                 )
 
             for x in ["*", " * "]:

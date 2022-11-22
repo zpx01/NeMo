@@ -109,6 +109,12 @@ class CardinalFst(GraphFst):
                 | cardinal_with_leading_zeros
             ).optimize()
 
+            one_to_a_replacement_graph = (
+                pynini.cross("one hundred", "a hundred")
+                | pynini.cross("one thousand", "thousand")
+                | pynini.cross("one million", "a million")
+            )
+            final_graph |= pynini.compose(final_graph, one_to_a_replacement_graph.optimize() + NEMO_SIGMA).optimize()
             # remove commas for 4 digits numbers
             four_digit_comma_graph = (NEMO_DIGIT - "0") + pynutil.delete(",") + NEMO_DIGIT ** 3
             final_graph |= pynini.compose(four_digit_comma_graph.optimize(), final_graph).optimize()

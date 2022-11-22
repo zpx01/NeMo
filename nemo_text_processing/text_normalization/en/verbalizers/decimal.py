@@ -73,6 +73,12 @@ class DecimalFst(GraphFst):
         if not deterministic:
             delete_tokens |= pynini.compose(
                 delete_tokens,
-                NEMO_SIGMA + (pynini.cross("point five", "and a half") | pynini.cross("zero point five", "half")),
+                NEMO_SIGMA
+                + (
+                    pynini.cross(" point five", " and a half")
+                    | pynini.cross("zero point five", "half")
+                    | pynini.cross(" point two five", " and a quarter")
+                    | pynini.cross("zero point two five", "quarter")
+                ),
             ).optimize()
         self.fst = delete_tokens.optimize()
