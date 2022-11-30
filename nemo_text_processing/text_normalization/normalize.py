@@ -33,6 +33,7 @@ from nemo_text_processing.text_normalization.data_loader_utils import (
     pre_process,
     write_file,
 )
+from nemo_text_processing.text_normalization.preprocessing_utils import additional_split
 from nemo_text_processing.text_normalization.token_parser import PRESERVE_ORDER_KEY, TokenParser
 from pynini.lib.rewrite import top_rewrite
 from tqdm import tqdm
@@ -430,25 +431,39 @@ class Normalizer:
 
         print(f'Normalized version saved at {output_filename}')
 
-    def split_text_into_sentences(self, text: str) -> List[str]:
+    def split_text_into_sentences(self, text: str, additional_split_symbols: str = "") -> List[str]:
         """
         Split text into sentences.
 
         Args:
             text: text
+            additional_split_symbols: Symbols to split sentences if eos sentence split resulted in a long sequence.
+                Use '|' as a separator between symbols, for example: ';|:'. Use '\s' to split by space.
 
         Returns list of sentences
         """
-        lower_case_unicode = ''
-        upper_case_unicode = ''
+        lower_case_unicode = ""
+        upper_case_unicode = ""
+
         if self.lang == "ru":
             lower_case_unicode = '\u0430-\u04FF'
             upper_case_unicode = '\u0410-\u042F'
 
+        # end of quoted speech - to be able to split sentences by full stop
+        text = re.sub(r"([\.\?\!])([\"\'])", r"\g<2>\g<1> ", text)
+
+        # remove extra space
+        text = re.sub(r" +", " ", text)
+
+        # remove space in the middle of the lower case abbreviation to avoid splitting into separate sentences
+        matches = re.findall(r"[a-z" + lower_case_unicode + "]\.\s[a-z" + lower_case_unicode + "]\.", text)
+        for match in matches:
+            text = text.replace(match, match.replace(". ", "."))
+
         # Read and split transcript by utterance (roughly, sentences)
         split_pattern = rf"(?<!\w\.\w.)(?<![A-Z{upper_case_unicode}][a-z{lower_case_unicode}]+\.)(?<![A-Z{upper_case_unicode}]\.)(?<=\.|\?|\!|\.”|\?”\!”)\s(?![0-9]+[a-z]*\.)"
-
         sentences = regex.split(split_pattern, text)
+        sentences = additional_split(sentences, additional_split_symbols)
         return sentences
 
     def _permute(self, d: OrderedDict) -> List[str]:
