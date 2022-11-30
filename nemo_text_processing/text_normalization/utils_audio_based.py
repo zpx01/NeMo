@@ -177,7 +177,7 @@ def get_alignment(raw, norm, pred_text, verbose: bool = False):
     import time
 
     # start_time = time.time()
-    semiotic_spans, _ = get_semiotic_spans(raw, norm)
+    semiotic_spans = get_semiotic_spans(raw, norm)[0]
     # print(f'Alignment 1: {round((time.time() - start_time) / 60, 2)} min.')
 
     # start_time = time.time()
@@ -191,25 +191,26 @@ def get_alignment(raw, norm, pred_text, verbose: bool = False):
     )
 
     if verbose:
+        print("=" * 40)
         for sem, pred in zip(text_for_audio_based["semiotic"], text_for_audio_based["pred_text"]):
-            logging.debug(f"{sem} -- {pred}")
-
-        logging.debug(text_for_audio_based["standard"])
+            print(f"{sem} -- {pred}")
+        print("=" * 40)
+        print(text_for_audio_based["standard"])
         for sem, pred in zip(text_for_audio_based["semiotic"], text_for_audio_based["pred_text"]):
-            logging.debug(f"{sem} -- {pred}")
-
+            print(f"{sem} -- {pred}")
+        print("=" * 40)
     return text_for_audio_based
 
 
 if __name__ == "__main__":
-    # raw = "This, example: number 15,000 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01, and can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
-    # norm = "This, example: number fifteen thousand can be a very long one!, and can fail to produce valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and forty nine dollars and one cent, and can fail to terminate, and can fail to terminate, and can fail to terminate, four fifty two."
-    # pred_text = "this w example nuber viteen thousand can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
+    raw = "This, example: number 15,000 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01, and can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
+    norm = "This, example: number fifteen thousand can be a very long one!, and can fail to produce valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and forty nine dollars and one cent, and can fail to terminate, and can fail to terminate, and can fail to terminate, four fifty two."
+    pred_text = "this w example nuber viteen thousand can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
+
+    text_for_audio_based = get_alignment(raw, norm, pred_text, verbose=True)
+    print(text_for_audio_based)
+
+    # raw = "We have spent the last several years reshaping our branch network, upgrading technology and deepening our focus on our core 6 markets,"
+    # norm = "we have spent the last several years reshaping our branch network upgrading technology and deepening our focus on our core six markets,"
     #
-    # text_for_audio_based = get_alignment(raw, norm, pred_text)
-    # print(text_for_audio_based)
-
-    raw = "We have spent the last several years reshaping our branch network, upgrading technology and deepening our focus on our core 6 markets,"
-    norm = "we have spent the last several years reshaping our branch network upgrading technology and deepening our focus on our core six markets,"
-
-    result = get_semiotic_spans(raw, norm)
+    # result = get_semiotic_spans(raw, norm)

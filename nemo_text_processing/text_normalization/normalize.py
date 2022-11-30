@@ -140,6 +140,7 @@ class Normalizer:
         punct_post_process: bool = False,
         batch_size: int = 1,
         n_jobs: int = 1,
+        **kwargs
     ):
         """
         NeMo text normalizer
@@ -159,10 +160,10 @@ class Normalizer:
 
         # to save intermediate results to a file
         batch = min(len(texts), batch_size)
-
+        import pdb; pdb.set_trace()
         try:
             normalized_texts = Parallel(n_jobs=n_jobs)(
-                delayed(self.process_batch)(texts[i : i + batch], verbose, punct_pre_process, punct_post_process)
+                delayed(self.process_batch)(texts[i : i + batch], verbose, punct_pre_process, punct_post_process, **kwargs)
                 for i in range(0, len(texts), batch)
             )
         except BaseException as e:
@@ -171,7 +172,7 @@ class Normalizer:
         normalized_texts = list(itertools.chain(*normalized_texts))
         return normalized_texts
 
-    def process_batch(self, batch, verbose, punct_pre_process, punct_post_process):
+    def process_batch(self, batch, verbose, punct_pre_process, punct_post_process, **kwargs):
         """
         Normalizes batch of text sequences
         Args:
@@ -182,7 +183,7 @@ class Normalizer:
         """
         normalized_lines = [
             self.normalize(
-                text, verbose=verbose, punct_pre_process=punct_pre_process, punct_post_process=punct_post_process
+                text, verbose=verbose, punct_pre_process=punct_pre_process, punct_post_process=punct_post_process, **kwargs
             )
             for text in tqdm(batch)
         ]
@@ -326,7 +327,8 @@ class Normalizer:
         punct_pre_process=False,
         punct_post_process=True,
         text_field: str = "text",
-        output_field: str = "nemo_normalized",
+        output_field: str = "normalized",
+        **kwargs
     ):
         line = json.loads(line)
 
@@ -335,6 +337,7 @@ class Normalizer:
             verbose=verbose,
             punct_pre_process=punct_pre_process,
             punct_post_process=punct_post_process,
+            **kwargs
         )
         line[output_field] = normalized_text
         return line
@@ -347,6 +350,7 @@ class Normalizer:
         punct_post_process: bool,
         batch_size: int,
         output_filename: Optional[str] = None,
+        **kwargs
     ):
         """
         Args:
@@ -361,6 +365,7 @@ class Normalizer:
             punct_post_process=True,
             text_field: str = "text",
             output_field: str = "normalized",
+            **kwargs
         ):
             """
             Normalizes batch of text sequences
@@ -369,15 +374,7 @@ class Normalizer:
                 batch_idx: batch index
                 dir_name: path to output directory to save results
             """
-            normalized_lines = [
-                self.normalize_line(
-                    line=line,
-                    verbose=False,
-                    punct_post_process=punct_post_process,
-                    punct_pre_process=punct_pre_process,
-                    text_field=text_field,
-                    output_field=output_field,
-                )
+            normalized_lines = [self.normalize_line(line=line,verbose=False,punct_post_process=punct_post_process,punct_pre_process=punct_pre_process,text_field=text_field,output_field=output_field,**kwargs)
                 for line in tqdm(batch)
             ]
 
@@ -410,26 +407,19 @@ class Normalizer:
                 tmp_dir,
                 punct_pre_process=punct_pre_process,
                 punct_post_process=punct_post_process,
+                **kwargs
             )
             for idx, i in enumerate(range(0, len(lines), batch))
         )
 
-        # [_process_batch(idx, lines[i: i + batch], tmp_dir, punct_pre_process=punct_pre_process, punct_post_process=punct_post_process) for idx, i in enumerate(range(0, len(lines), batch))]
+        # [_process_batch(idx, lines[i: i + batch], tmp_dir, punct_pre_process=punct_pre_process, punct_post_process=punct_post_process, **kwargs) for idx, i in enumerate(range(0, len(lines), batch))]
 
         # aggregate all intermediate files
         with open(output_filename, "w") as f_out:
             for batch_f in sorted(glob(f"{tmp_dir}/*.json")):
                 with open(batch_f, "r") as f_in:
-                    # lines = f_in.read()
-
-                    for line in f_in:
-                        line = json.loads(line)
-                        if line["normalized"] != line["text"]:
-                            line["qn_pred_text"] = line["pred_text"]
-                            line["pred_text"] = line["normalized"]
-                            del line["normalized"]
-                            f_out.write(json.dumps(line, ensure_ascii=False) + '\n')
-                    # f_out.write(lines)
+                    lines = f_in.read()
+                    f_out.write(lines)
 
         print(f'Normalized version saved at {output_filename}')
 
@@ -632,8 +622,6 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    start_time = perf_counter()
-
     args = parse_args()
     whitelist = os.path.abspath(args.whitelist) if args.whitelist else None
 
@@ -647,6 +635,7 @@ if __name__ == "__main__":
         whitelist=whitelist,
         lang=args.language,
     )
+    start_time = perf_counter()
     if args.input_string:
         print(
             normalizer.normalize(
