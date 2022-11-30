@@ -143,7 +143,8 @@ def _adjust_span(semiotic_spans, norm_pred_diffs, pred_norm_diffs, norm_raw_diff
 
     text_for_audio_based = {"semiotic": [], "standard": "", "pred_text": []}
 
-    for raw_span, norm_span in semiotic_spans:
+    for idx, (raw_span, norm_span) in enumerate(semiotic_spans):
+
         raw_start, raw_end = raw_span
         raw_end -= 1
 
@@ -158,13 +159,25 @@ def _adjust_span(semiotic_spans, norm_pred_diffs, pred_norm_diffs, norm_raw_diff
         new_norm_end = pred_norm_diffs[pred_text_end - 1][1]
         raw_text_end = norm_raw_diffs[new_norm_end - 1][1]
 
+        semiotic_span = f"{' '.join(raw_text_list[raw_text_start:raw_text_end])}"
+
         text_for_audio_based["semiotic"].append(f"{' '.join(raw_text_list[raw_text_start:raw_text_end])}")
         text_for_audio_based["pred_text"].append(f"{' '.join(pred_text_list[pred_text_start:pred_text_end])}")
         if standard_start < raw_text_start:
+            # if idx >= 160:
+            #     print(f"norm_span: {norm_span}")
+            #     print(f"new_norm_start: {new_norm_start}")
+            #     print(f"semiotic: {semiotic_span}")
+            #     print(" " + " ".join(raw_text_list[standard_start:raw_text_start]))
+            #     print(f"raw_span[1]: {raw_span[1]}")
+            #     import pdb;
+            #     pdb.set_trace()
+            #     print()
+
             text_for_audio_based["standard"] += " " + " ".join(raw_text_list[standard_start:raw_text_start])
 
         text_for_audio_based["standard"] += f" {SEMIOTIC_TAG} "
-        standard_start = raw_span[1]
+        standard_start = raw_text_end
 
     if standard_start < len(raw_text_list):
         text_for_audio_based["standard"] += ' '.join(raw_text_list[standard_start:])
@@ -195,20 +208,29 @@ def get_alignment(raw, norm, pred_text, verbose: bool = False):
         for sem, pred in zip(text_for_audio_based["semiotic"], text_for_audio_based["pred_text"]):
             print(f"{sem} -- {pred}")
         print("=" * 40)
-        print(text_for_audio_based["standard"])
-        for sem, pred in zip(text_for_audio_based["semiotic"], text_for_audio_based["pred_text"]):
-            print(f"{sem} -- {pred}")
-        print("=" * 40)
     return text_for_audio_based
 
 
 if __name__ == "__main__":
-    raw = "This, example: number 15,000 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01, and can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
-    norm = "This, example: number fifteen thousand can be a very long one!, and can fail to produce valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and forty nine dollars and one cent, and can fail to terminate, and can fail to terminate, and can fail to terminate, four fifty two."
-    pred_text = "this w example nuber viteen thousand can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
+    raw = "This, example: number 1,500 can be a very long one!, and can fail to produce valid normalization for such an easy number like 10,125 or dollar value $5349.01, and can fail to terminate, and can fail to terminate, and can fail to terminate, 452."
+    norm = "This, example: number one thousand five hundred can be a very long one!, and can fail to produce valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and forty nine dollars and one cent, and can fail to terminate, and can fail to terminate, and can fail to terminate, four fifty two."
+    pred_text = "this w example nuber viteen hundred can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
 
+    import json
+    from time import perf_counter
+
+    det_manifest = f"/mnt/sdb/DATA/SPGI/normalization//sample_stt_en_conformer_ctc_large_default_HOUR.json"  # deter TN predictions stored in "pred_text" field
+    with open(det_manifest, "r") as f:
+        for line in f:
+            line = json.loads(line)
+            norm = line["normalized"]
+            raw = line["text"]
+            pred_text = line["pred_text"]
+
+    start_time = perf_counter()
     text_for_audio_based = get_alignment(raw, norm, pred_text, verbose=True)
-    print(text_for_audio_based)
+    print(f'Execution time: {round((perf_counter() - start_time) / 60, 2)} min.')
+    # print(text_for_audio_based)
 
     # raw = "We have spent the last several years reshaping our branch network, upgrading technology and deepening our focus on our core 6 markets,"
     # norm = "we have spent the last several years reshaping our branch network upgrading technology and deepening our focus on our core six markets,"

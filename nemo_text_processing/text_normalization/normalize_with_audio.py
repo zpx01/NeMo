@@ -15,9 +15,9 @@
 import json
 import os
 import shutil
-from time import perf_counter
 from argparse import ArgumentParser
 from glob import glob
+from time import perf_counter
 from typing import List, Optional, Tuple
 
 import Levenshtein
@@ -166,8 +166,14 @@ class NormalizerWithAudio(Normalizer):
         # text_for_audio_based["audio_selected"].append(best_option)
         # text_for_audio_based["cer"].append(cer)
 
-    def normalize(
-        self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False, pred_text: str = None, **kwargs
+    def normalize_OLD(
+        self,
+        text: str,
+        n_tagged: int,
+        punct_post_process: bool = True,
+        verbose: bool = False,
+        pred_text: str = None,
+        **kwargs,
     ) -> str:
         """
         Main function. Normalizes tokens from written to spoken form
@@ -290,6 +296,88 @@ class NormalizerWithAudio(Normalizer):
             normalized_text += " " + " ".join(text_list[sent_idx])
         return normalized_text.replace("  ", " ")
 
+    def normalize(
+        self,
+        text: str,
+        n_tagged: int,
+        punct_post_process: bool = True,
+        verbose: bool = False,
+        pred_text: str = None,
+        **kwargs,
+    ) -> str:
+        """
+        Main function. Normalizes tokens from written to spoken form
+            e.g. 12 kg -> twelve kilograms
+
+        Args:
+            text: string that may include semiotic classes
+            n_tagged: number of tagged options to consider, -1 - to get all possible tagged options
+            punct_post_process: whether to normalize punctuation
+            verbose: whether to print intermediate meta information
+
+        Returns:
+            normalized text options (usually there are multiple ways of normalizing a given semiotic class)
+        """
+        #################################
+        # LONG AUDIO WITH DIFF APPROACH
+        #################################
+
+        # text_list = [text]
+        # if len(text.split()) > 500:
+        #     print(
+        #         "Your input is too long. Please split up the input into sentences, "
+        #         "or strings with fewer than 500 words"
+        #     )
+        #     print("split by sentences")
+        #     text_list = self.split_text_into_sentences(text)
+
+        from nemo_text_processing.text_normalization.utils_audio_based import get_alignment
+
+        start = perf_counter()
+        det_norm = super().normalize(
+            text=text, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
+        )
+        print(f'det norm: {round((perf_counter() - start) / 60, 2)} min.')
+        start = perf_counter()
+        text_for_audio_based = get_alignment(text, det_norm, pred_text, verbose=False)
+        print(f'get_alignment: {round((perf_counter() - start) / 60, 2)} min.')
+
+        semiotic_spans = text_for_audio_based["semiotic"]
+        pred_text_spans = text_for_audio_based["pred_text"]
+        text_with_span_tags_list = text_for_audio_based["standard"].split()
+        # find indices of tags
+        masked_idx_list = []
+        for idx, w in enumerate(text_with_span_tags_list):
+            if w == SEMIOTIC_TAG:
+                masked_idx_list.append(idx)
+
+        print("running audio based normalization")
+        start = perf_counter()
+        sem_tag_idx = 0
+        with tqdm(total=len(semiotic_spans)) as pbar:
+            for idx, (cur_semiotic_span, cur_pred_text) in enumerate(zip(semiotic_spans, pred_text_spans)):
+                non_deter_options = self.normalize_non_deterministic(
+                    text=cur_semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose,
+                )
+
+                best_option, cer, best_idx = self.select_best_match(
+                    normalized_texts=non_deter_options,
+                    input_text=cur_semiotic_span,
+                    pred_text=cur_pred_text,
+                    verbose=verbose,
+                    cer_threshold=-1,
+                )
+                if idx == 161:
+                    import pdb
+
+                    pdb.set_trace()
+                text_with_span_tags_list[masked_idx_list[sem_tag_idx]] = best_option
+                sem_tag_idx += 1
+                pbar.update(1)
+        print(f'done with audio-based normalization: {round((perf_counter() - start) / 60, 2)} min.')
+        normalized_text = " ".join(text_with_span_tags_list)
+        return normalized_text.replace("  ", " ")
+
     def normalize_non_deterministic(
         self, text: str, n_tagged: int, punct_post_process: bool = True, verbose: bool = False
     ):
@@ -346,14 +434,16 @@ class NormalizerWithAudio(Normalizer):
         normalized_texts = set(normalized_texts)
         return normalized_texts
 
-    def normalize_line(self, n_tagged,
+    def normalize_line(
+        self,
+        n_tagged,
         line: str,
         verbose: bool = False,
         punct_pre_process=False,
         punct_post_process=True,
         text_field: str = "text",
         output_field: str = "normalized",
-        **kwargs
+        **kwargs,
     ):
         line = json.loads(line)
 
@@ -574,7 +664,6 @@ def parse_args():
     return parser.parse_args()
 
 
-
 if __name__ == "__main__":
     args = parse_args()
 
@@ -642,8 +731,7 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             output_filename=args.output_filename,
             n_tagged=args.n_tagged,
-            pred_text="pred_text"
-
+            pred_text="pred_text",
         )
     else:
         raise ValueError(

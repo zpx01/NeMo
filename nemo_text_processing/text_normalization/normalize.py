@@ -140,7 +140,7 @@ class Normalizer:
         punct_post_process: bool = False,
         batch_size: int = 1,
         n_jobs: int = 1,
-        **kwargs
+        **kwargs,
     ):
         """
         NeMo text normalizer
@@ -160,10 +160,14 @@ class Normalizer:
 
         # to save intermediate results to a file
         batch = min(len(texts), batch_size)
-        import pdb; pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
         try:
             normalized_texts = Parallel(n_jobs=n_jobs)(
-                delayed(self.process_batch)(texts[i : i + batch], verbose, punct_pre_process, punct_post_process, **kwargs)
+                delayed(self.process_batch)(
+                    texts[i : i + batch], verbose, punct_pre_process, punct_post_process, **kwargs
+                )
                 for i in range(0, len(texts), batch)
             )
         except BaseException as e:
@@ -183,7 +187,11 @@ class Normalizer:
         """
         normalized_lines = [
             self.normalize(
-                text, verbose=verbose, punct_pre_process=punct_pre_process, punct_post_process=punct_post_process, **kwargs
+                text,
+                verbose=verbose,
+                punct_pre_process=punct_pre_process,
+                punct_post_process=punct_post_process,
+                **kwargs,
             )
             for text in tqdm(batch)
         ]
@@ -328,7 +336,7 @@ class Normalizer:
         punct_post_process=True,
         text_field: str = "text",
         output_field: str = "normalized",
-        **kwargs
+        **kwargs,
     ):
         line = json.loads(line)
 
@@ -337,7 +345,7 @@ class Normalizer:
             verbose=verbose,
             punct_pre_process=punct_pre_process,
             punct_post_process=punct_post_process,
-            **kwargs
+            **kwargs,
         )
         line[output_field] = normalized_text
         return line
@@ -350,7 +358,7 @@ class Normalizer:
         punct_post_process: bool,
         batch_size: int,
         output_filename: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -365,7 +373,7 @@ class Normalizer:
             punct_post_process=True,
             text_field: str = "text",
             output_field: str = "normalized",
-            **kwargs
+            **kwargs,
         ):
             """
             Normalizes batch of text sequences
@@ -374,7 +382,16 @@ class Normalizer:
                 batch_idx: batch index
                 dir_name: path to output directory to save results
             """
-            normalized_lines = [self.normalize_line(line=line,verbose=False,punct_post_process=punct_post_process,punct_pre_process=punct_pre_process,text_field=text_field,output_field=output_field,**kwargs)
+            normalized_lines = [
+                self.normalize_line(
+                    line=line,
+                    verbose=False,
+                    punct_post_process=punct_post_process,
+                    punct_pre_process=punct_pre_process,
+                    text_field=text_field,
+                    output_field=output_field,
+                    **kwargs,
+                )
                 for line in tqdm(batch)
             ]
 
@@ -400,19 +417,29 @@ class Normalizer:
             shutil.rmtree(tmp_dir)
         os.makedirs(tmp_dir)
 
-        Parallel(n_jobs=n_jobs)(
-            delayed(_process_batch)(
+        # Parallel(n_jobs=n_jobs)(
+        #     delayed(_process_batch)(
+        #         idx,
+        #         lines[i : i + batch],
+        #         tmp_dir,
+        #         punct_pre_process=punct_pre_process,
+        #         punct_post_process=punct_post_process,
+        #         **kwargs
+        #     )
+        #     for idx, i in enumerate(range(0, len(lines), batch))
+        # )
+
+        [
+            _process_batch(
                 idx,
                 lines[i : i + batch],
                 tmp_dir,
                 punct_pre_process=punct_pre_process,
                 punct_post_process=punct_post_process,
-                **kwargs
+                **kwargs,
             )
             for idx, i in enumerate(range(0, len(lines), batch))
-        )
-
-        # [_process_batch(idx, lines[i: i + batch], tmp_dir, punct_pre_process=punct_pre_process, punct_post_process=punct_post_process, **kwargs) for idx, i in enumerate(range(0, len(lines), batch))]
+        ]
 
         # aggregate all intermediate files
         with open(output_filename, "w") as f_out:
