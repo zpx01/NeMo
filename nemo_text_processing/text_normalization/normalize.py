@@ -211,9 +211,7 @@ class Normalizer:
 
         try:
             normalized_texts = Parallel(n_jobs=n_jobs)(
-                delayed(_process_batch)(
-                    texts[i : i + batch], verbose, punct_pre_process, punct_post_process, **kwargs
-                )
+                delayed(_process_batch)(texts[i : i + batch], verbose, punct_pre_process, punct_post_process, **kwargs)
                 for i in range(0, len(texts), batch)
             )
         except BaseException as e:
@@ -221,7 +219,6 @@ class Normalizer:
 
         normalized_texts = list(itertools.chain(*normalized_texts))
         return normalized_texts
-
 
     def _estimate_number_of_permutations_in_nested_dict(
         self, token_group: Dict[str, Union[OrderedDict, str, bool]]

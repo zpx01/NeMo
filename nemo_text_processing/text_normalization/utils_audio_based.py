@@ -40,8 +40,8 @@ def _get_alignment(a, b):
         non_match_start_l = l_start + length
         non_match_start_r = r_start + length
 
-    for k, v in diffs.items():
-        print(f"{k}: {a[k]} -- {b[v[0]:v[1]]} -- {v[2]}")
+    # for k, v in diffs.items():
+    #     print(f"{k}: {a[k]} -- {b[v[0]:v[1]]} -- {v[2]}")
     return diffs
 
 
@@ -184,18 +184,17 @@ def get_alignment(raw, norm, pred_text, verbose: bool = False):
     import time
 
     # start_time = time.time()
-    semiotic_spans = get_semiotic_spans(raw, norm)[0]
+    # semiotic_spans = get_semiotic_spans(raw, norm)[0]
     # print(f'Alignment 1: {round((time.time() - start_time) / 60, 2)} min.')
 
     # start_time = time.time()
-    print("=" * 40)
-    print("NORM vs RAW")
     norm_raw_diffs = _get_alignment(norm, raw)
 
-    print("=" * 40)
-    print("NORM vs PRED")
     # print(f'Alignment 2: {round((time.time() - start_time) / 60, 2)} min.')
     norm_pred_diffs = _get_alignment(norm, pred_text)
+
+    for i in range(len(norm.split())):
+        print(i, norm_raw_diffs[i], norm_pred_diffs[i])
 
     adjusted = []
     word_id = 0
@@ -209,20 +208,36 @@ def get_alignment(raw, norm, pred_text, verbose: bool = False):
             word_id += 1
             while word_id < len(norm.split()) and not done:
                 norm_raw, norm_pred = norm_raw_diffs[word_id], norm_pred_diffs[word_id]
-                non_match_raw_end = norm_raw[1]
-                non_match_pred_end = norm_pred[1]
                 if norm_raw[2] == MATCH and norm_pred[2] == MATCH:
+                    non_match_raw_end = norm_raw_diffs[word_id - 1][1]
+                    non_match_pred_end = norm_pred_diffs[word_id - 1][1]
+                    word_id -= 1
                     done = True
                 else:
                     word_id += 1
-            adjusted.append((mismatched_id, (non_match_raw_start, non_match_raw_end, NONMATCH), (non_match_pred_start, non_match_pred_end, NONMATCH)))
+            # print(word_id, "1")
+            # if word_id == 67:
+            #     import pdb; pdb.set_trace()
+            #     print()
+            if not done:
+                non_match_raw_end = len(raw.split())
+                non_match_pred_end = len(pred_text.split())
+            adjusted.append(
+                (
+                    mismatched_id,
+                    (non_match_raw_start, non_match_raw_end, NONMATCH),
+                    (non_match_pred_start, non_match_pred_end, NONMATCH),
+                )
+            )
         else:
+            # print(word_id, "2")
             adjusted.append((word_id, norm_raw, norm_pred))
         word_id += 1
 
+    # import pdb;
+    # pdb.set_trace()
     adjusted2 = []
     last_status = None
-    last_item = None
     for idx, item in enumerate(adjusted):
         if last_status is None:
             last_status = item[1][2]
@@ -235,7 +250,9 @@ def get_alignment(raw, norm, pred_text, verbose: bool = False):
             raw_end = item[1][1]
             pred_text_end = item[2][1]
         else:
-            adjusted2.append(([norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status))
+            adjusted2.append(
+                ([norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status)
+            )
             last_status = item[1][2]
             raw_start = item[1][0]
             pred_text_start = item[2][0]
@@ -246,56 +263,83 @@ def get_alignment(raw, norm, pred_text, verbose: bool = False):
     if last_status == item[1][2]:
         raw_end = item[1][1]
         pred_text_end = item[2][1]
-        adjusted2.append(([norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status))
+        adjusted2.append(
+            ([norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status)
+        )
     else:
-        adjusted2.append(([adjusted[idx-1][0], len(norm.split())], [item[1][0], item[1][1]], [item[2][0], item[2][1]], item[1][2]))
+        adjusted2.append(
+            (
+                [adjusted[idx - 1][0], len(norm.split())],
+                [item[1][0], len(raw.split())],
+                [item[2][0], len(pred_text.split())],
+                item[1][2],
+            )
+        )
 
-
-    print("=" * 40)
-    for x in adjusted:
-        print(x)
-    print("=" * 40)
-    for x in adjusted2:
-        print(x)
-    import pdb; pdb.set_trace()
+    # print("+" * 50)
+    # print("adjusted:")
+    # for item in adjusted:
+    #     print(item)
+    #
+    # print("+" * 50)
+    # print("adjusted2:")
+    # for item in adjusted2:
+    #     print(item)
 
     semiotic_spans = []
+    norm_spans = []
     pred_texts = []
-    raw_texts = []
-    norm_text = []
     raw_text_masked = ""
 
     raw_list = raw.split()
-    norm_list = norm.split()
     pred_text_list = pred_text.split()
+    norm_list = norm.split()
     for idx, item in enumerate(adjusted2):
-        if item[-1] == NONMATCH:
+        cur_semiotic = " ".join(raw_list[item[1][0] : item[1][1]])
+        cur_pred_text = " ".join(pred_text_list[item[2][0] : item[2][1]])
+        cur_norm_span = " ".join(norm_list[item[0][0] : item[0][1]])
+
+        if item[-1] == NONMATCH and cur_semiotic != cur_norm_span:
             raw_text_masked += " " + SEMIOTIC_TAG
-            semiotic_spans.append(" ".join(raw_list[item[1][0]: item[1][1]]))
-            pred_texts.append(" ".join(pred_text_list[item[2][0]: item[2][1]]))
+            semiotic_spans.append(cur_semiotic)
+            pred_texts.append(cur_pred_text)
+            norm_spans.append(cur_norm_span)
+
+            # print(f"semiotic : {semiotic_spans[-1]}")
+            # print(f"pred text: {pred_texts[-1]}")
+            # print(f"norm     : {norm_spans[-1]}")
+            # print("--->", item)
+            # import pdb; pdb.set_trace()
         else:
-            raw_text_masked += " " + " ".join(raw_list[item[1][0]: item[1][1]])
+            raw_text_masked += " " + " ".join(raw_list[item[1][0] : item[1][1]])
 
     raw_text_masked = raw_text_masked.strip()
-    print(semiotic_spans)
-    print(pred_texts)
+    for i in range(len(semiotic_spans)):
+        print("=" * 40)
+        print(f"semiotic : {semiotic_spans[i]}")
+        print(f"pred text: {pred_texts[i]}")
+        print(f"norm     : {norm_spans[i]}")
+        print("=" * 40)
     print(raw_text_masked)
-    import pdb; pdb.set_trace()
+    import pdb
+
+    pdb.set_trace()
 
     print("=" * 40)
     print("PRED vs NORM")
-    pred_norm_diffs = _get_alignment(pred_text, norm)
+    # pred_norm_diffs = _get_alignment(pred_text, norm)
+    #
+    # text_for_audio_based = _adjust_span(
+    #     semiotic_spans, norm_pred_diffs, pred_norm_diffs, norm_raw_diffs, raw, pred_text
+    # )
+    #
+    # if verbose:
+    #     print("=" * 40)
+    #     for sem, pred in zip(text_for_audio_based["semiotic"], text_for_audio_based["pred_text"]):
+    #         print(f"{sem} -- {pred}")
+    #     print("=" * 40)
 
-    text_for_audio_based = _adjust_span(
-        semiotic_spans, norm_pred_diffs, pred_norm_diffs, norm_raw_diffs, raw, pred_text
-    )
-
-    if verbose:
-        print("=" * 40)
-        for sem, pred in zip(text_for_audio_based["semiotic"], text_for_audio_based["pred_text"]):
-            print(f"{sem} -- {pred}")
-        print("=" * 40)
-    return text_for_audio_based
+    # return text_for_audio_based
 
 
 if __name__ == "__main__":
@@ -314,14 +358,17 @@ if __name__ == "__main__":
     #         raw = line["text"]
     #         pred_text = line["pred_text"]
 
-    raw = "This is just the first step of a more ambitious long-term plan to open 1,300 stores in the next 10 years. and Fernando just showed you the phasing of the implementation plan on Slide 20. On Slide 21, we have translated the first 3 years of our transformation plan into a more detailed financial outlook. That will obviously take some time to achieve."
-    norm = "This is just the first step of a more ambitious long-term plan to open one thousand three hundred stores in the next ten years. and Fernando just showed you the phasing of the implementation plan on Slide twenty. On Slide twenty one, we have translated the first three years of our transformation plan into a more detailed financial outlook. That will obviously take some time to achieve."
-    pred_text = "he just the firstastate of a more ambitious long term plan to oten thirteen hundred stores in the next ten years and tonata just shows you the phasing of the implementation plan on slyg twenty of flight twenty one we have translated the first three years of our transformation clamb into a more detailed financial outlook am that will obsesly take some time to achieve"
+    # raw = "This is just the first step of a more ambitious long-term plan to open 1,300 stores in the next 10 years. and Fernando just showed you the phasing of the implementation plan on Slide 20. On Slide 21, we have translated the first 3 years of our transformation plan into a more detailed financial outlook. That will obviously take some time to achieve."
+    # norm = "This is just the first step of a more ambitious long-term plan to open one thousand three hundred stores in the next ten years. and Fernando just showed you the phasing of the implementation plan on Slide twenty. On Slide twenty one, we have translated the first three years of our transformation plan into a more detailed financial outlook. That will obviously take some time to achieve."
+    # pred_text = "he just the firstastate of a more ambitious long term plan to oten thirteen hundred stores in the next ten years and tonata just shows you the phasing of the implementation plan on slyg twenty of flight twenty one we have translated the first three years of our transformation clamb into a more detailed financial outlook am that will obsesly take some time to achieve"
 
     raw = "plan on Slide 20. On Slide 21, we have translated"
     norm = "plan on Slide twenty. On Slide twenty one, we have translated"
     pred_text = "plan on slyg twenty of flight twenty one we have translated"
 
+    raw = "This is just the first step of a more ambitious long-term plan to open 1,300 stores"
+    norm = "This is just the first step of a more ambitious long-term plan to open one thousand three hundred stores"
+    pred_text = "he just the firstastate of a more ambitious long term plan to oten thirteen hundred stores"
 
     # get_semiotic_spans(norm, pred_text)
     # print("\n\n")
@@ -331,7 +378,6 @@ if __name__ == "__main__":
     start_time = perf_counter()
     text_for_audio_based = get_alignment(raw, norm, pred_text, verbose=True)
     print(f'Execution time: {round((perf_counter() - start_time) / 60, 2)} min.')
-
 
     print(text_for_audio_based)
 
