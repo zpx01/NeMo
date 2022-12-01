@@ -159,21 +159,14 @@ def _adjust_span(semiotic_spans, norm_pred_diffs, pred_norm_diffs, norm_raw_diff
         new_norm_end = pred_norm_diffs[pred_text_end - 1][1]
         raw_text_end = norm_raw_diffs[new_norm_end - 1][1]
 
-        semiotic_span = f"{' '.join(raw_text_list[raw_text_start:raw_text_end])}"
+        cur_semiotic_span = f"{' '.join(raw_text_list[raw_text_start:raw_text_end])}"
+        cur_pred_text = f"{' '.join(pred_text_list[pred_text_start:pred_text_end])}"
 
-        text_for_audio_based["semiotic"].append(f"{' '.join(raw_text_list[raw_text_start:raw_text_end])}")
-        text_for_audio_based["pred_text"].append(f"{' '.join(pred_text_list[pred_text_start:pred_text_end])}")
+        if len(cur_semiotic_span) > 0 and len(cur_pred_text) > 0:
+            text_for_audio_based["semiotic"].append(cur_semiotic_span)
+            text_for_audio_based["pred_text"].append(cur_pred_text)
+
         if standard_start < raw_text_start:
-            # if idx >= 160:
-            #     print(f"norm_span: {norm_span}")
-            #     print(f"new_norm_start: {new_norm_start}")
-            #     print(f"semiotic: {semiotic_span}")
-            #     print(" " + " ".join(raw_text_list[standard_start:raw_text_start]))
-            #     print(f"raw_span[1]: {raw_span[1]}")
-            #     import pdb;
-            #     pdb.set_trace()
-            #     print()
-
             text_for_audio_based["standard"] += " " + " ".join(raw_text_list[standard_start:raw_text_start])
 
         text_for_audio_based["standard"] += f" {SEMIOTIC_TAG} "
@@ -219,18 +212,18 @@ if __name__ == "__main__":
     import json
     from time import perf_counter
 
-    det_manifest = f"/mnt/sdb/DATA/SPGI/normalization//sample_stt_en_conformer_ctc_large_default_HOUR.json"  # deter TN predictions stored in "pred_text" field
-    with open(det_manifest, "r") as f:
-        for line in f:
-            line = json.loads(line)
-            norm = line["normalized"]
-            raw = line["text"]
-            pred_text = line["pred_text"]
+    # det_manifest = f"/mnt/sdb/DATA/SPGI/normalization//sample_stt_en_conformer_ctc_large_default_HOUR.json"  # deter TN predictions stored in "pred_text" field
+    # with open(det_manifest, "r") as f:
+    #     for line in f:
+    #         line = json.loads(line)
+    #         norm = line["normalized"]
+    #         raw = line["text"]
+    #         pred_text = line["pred_text"]
 
     start_time = perf_counter()
     text_for_audio_based = get_alignment(raw, norm, pred_text, verbose=True)
     print(f'Execution time: {round((perf_counter() - start_time) / 60, 2)} min.')
-    # print(text_for_audio_based)
+    print(text_for_audio_based)
 
     # raw = "We have spent the last several years reshaping our branch network, upgrading technology and deepening our focus on our core 6 markets,"
     # norm = "we have spent the last several years reshaping our branch network upgrading technology and deepening our focus on our core six markets,"

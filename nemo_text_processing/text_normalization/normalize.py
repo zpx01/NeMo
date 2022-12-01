@@ -48,6 +48,33 @@ except (ModuleNotFoundError, ImportError) as e:
 SPACE_DUP = re.compile(' {2,}')
 
 
+"""
+To normalize a single entry:
+    python normalize.py --text=<INPUT_TEXT>
+        
+To normalize text in .json manifest:
+
+    python normalize.py \
+        --input_file=<PATH TO INPUT .JSON MANIFEST> \
+        --output_file=<PATH TO OUTPUT .JSON MANIFEST> \
+        --n_jobs=-1 \
+        --batch_size=300 \
+        --manifest_text_field="text" \
+        ----whitelist=<PATH TO YOUR WHITELIST>
+
+
+To integrate Normalizer in your script:
+    >>> from nemo_text_processing.text_normalization.normalize import Normalizer
+    # see the script for args details
+    >>> normalizer_en = (Normalizer(input_case='cased', lang='en', cache_dir=CACHE_DIR, overwrite_cache=False, post_process=True)
+    >>> normalizer_en.normalize("<INPUT_TEXT>")
+    # normalize list of entries
+    >>> normalizer_en.normalize_list(["<INPUT_TEXT1>", <INPUT_TEXT2>"])
+    # normalize .json manifest entries
+    >>> normalizer.normalize_manifest(manifest=<PATH TO INPUT .JSON MANIFEST>, n_jobs=-1, batch_size=300, output_filename=<PATH TO OUTPUT .JSON MANIFEST>, text_field="text"
+"""
+
+
 class Normalizer:
     """
     Normalizer class that converts text from written to spoken form.
@@ -158,14 +185,33 @@ class Normalizer:
         Returns converted list input strings
         """
 
+        def _process_batch(batch, verbose, punct_pre_process, punct_post_process, **kwargs):
+            """
+            Normalizes batch of text sequences
+            Args:
+                batch: list of texts
+                verbose: whether to print intermediate meta information
+                punct_pre_process: whether to do punctuation pre-processing
+                punct_post_process: whether to do punctuation post-processing
+            """
+            normalized_lines = [
+                self.normalize(
+                    text,
+                    verbose=verbose,
+                    punct_pre_process=punct_pre_process,
+                    punct_post_process=punct_post_process,
+                    **kwargs,
+                )
+                for text in tqdm(batch)
+            ]
+            return normalized_lines
+
         # to save intermediate results to a file
         batch = min(len(texts), batch_size)
-        import pdb
 
-        pdb.set_trace()
         try:
             normalized_texts = Parallel(n_jobs=n_jobs)(
-                delayed(self.process_batch)(
+                delayed(_process_batch)(
                     texts[i : i + batch], verbose, punct_pre_process, punct_post_process, **kwargs
                 )
                 for i in range(0, len(texts), batch)
@@ -176,26 +222,6 @@ class Normalizer:
         normalized_texts = list(itertools.chain(*normalized_texts))
         return normalized_texts
 
-    def process_batch(self, batch, verbose, punct_pre_process, punct_post_process, **kwargs):
-        """
-        Normalizes batch of text sequences
-        Args:
-            batch: list of texts
-            verbose: whether to print intermediate meta information
-            punct_pre_process: whether to do punctuation pre-processing
-            punct_post_process: whether to do punctuation post-processing
-        """
-        normalized_lines = [
-            self.normalize(
-                text,
-                verbose=verbose,
-                punct_pre_process=punct_pre_process,
-                punct_post_process=punct_post_process,
-                **kwargs,
-            )
-            for text in tqdm(batch)
-        ]
-        return normalized_lines
 
     def _estimate_number_of_permutations_in_nested_dict(
         self, token_group: Dict[str, Union[OrderedDict, str, bool]]
@@ -208,7 +234,7 @@ class Normalizer:
         return num_perms
 
     def _split_tokens_to_reduce_number_of_permutations(
-        self, tokens: List[dict], max_number_of_permutations_per_split: int = 729
+        self, tokens: List[dict], max_number_of_permutations_per_split: int = 500
     ) -> List[List[dict]]:
         """
         Splits a sequence of tokens in a smaller sequences of tokens in a way that maximum number of composite
@@ -358,6 +384,7 @@ class Normalizer:
         punct_post_process: bool,
         batch_size: int,
         output_filename: Optional[str] = None,
+        text_field: str = "text",
         **kwargs,
     ):
         """
@@ -417,29 +444,30 @@ class Normalizer:
             shutil.rmtree(tmp_dir)
         os.makedirs(tmp_dir)
 
-        # Parallel(n_jobs=n_jobs)(
-        #     delayed(_process_batch)(
-        #         idx,
-        #         lines[i : i + batch],
-        #         tmp_dir,
-        #         punct_pre_process=punct_pre_process,
-        #         punct_post_process=punct_post_process,
-        #         **kwargs
-        #     )
-        #     for idx, i in enumerate(range(0, len(lines), batch))
-        # )
-
-        [
-            _process_batch(
+        Parallel(n_jobs=n_jobs)(
+            delayed(_process_batch)(
                 idx,
                 lines[i : i + batch],
                 tmp_dir,
                 punct_pre_process=punct_pre_process,
                 punct_post_process=punct_post_process,
-                **kwargs,
+                **kwargs
             )
             for idx, i in enumerate(range(0, len(lines), batch))
-        ]
+        )
+
+        # [
+        #     _process_batch(
+        #         idx,
+        #         lines[i : i + batch],
+        #         tmp_dir,
+        #         text_field=text_field,
+        #         punct_pre_process=punct_pre_process,
+        #         punct_post_process=punct_post_process,
+        #         **kwargs,
+        #     )
+        #     for idx, i in enumerate(range(0, len(lines), batch))
+        # ]
 
         # aggregate all intermediate files
         with open(output_filename, "w") as f_out:
@@ -620,7 +648,18 @@ def parse_args():
     parser = ArgumentParser()
     input = parser.add_mutually_exclusive_group()
     input.add_argument("--text", dest="input_string", help="input string", type=str)
-    input.add_argument("--input_file", dest="input_file", help="input file path", type=str)
+    input.add_argument(
+        "--input_file",
+        dest="input_file",
+        help="input file path. The input file could be either a .txt file containing once example for normalziation per line or or .json manifest file. Field to normalized in .json manifest is specifie with `--text_field` arg.",
+        type=str,
+    )
+    parser.add_argument(
+        '--manifest_text_field',
+        help="A field in .json manifest to normalize (applicable only when input_file is a .json manifest)",
+        type=str,
+        default="text",
+    )
     parser.add_argument('--output_file', dest="output_file", help="output file path", type=str)
     parser.add_argument("--language", help="language", choices=["en", "de", "es", "zh"], default="en", type=str)
     parser.add_argument(
@@ -680,6 +719,7 @@ if __name__ == "__main__":
                 punct_pre_process=args.punct_pre_process,
                 punct_post_process=args.punct_post_process,
                 batch_size=args.batch_size,
+                text_field=args.manifest_text_field,
                 output_filename=args.output_file,
             )
 
