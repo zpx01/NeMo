@@ -234,7 +234,7 @@ class Normalizer:
         return num_perms
 
     def _split_tokens_to_reduce_number_of_permutations(
-        self, tokens: List[dict], max_number_of_permutations_per_split: int = 500
+        self, tokens: List[dict], max_number_of_permutations_per_split: int = 729
     ) -> List[List[dict]]:
         """
         Splits a sequence of tokens in a smaller sequences of tokens in a way that maximum number of composite
@@ -444,30 +444,30 @@ class Normalizer:
             shutil.rmtree(tmp_dir)
         os.makedirs(tmp_dir)
 
-        Parallel(n_jobs=n_jobs)(
-            delayed(_process_batch)(
-                idx,
-                lines[i : i + batch],
-                tmp_dir,
-                punct_pre_process=punct_pre_process,
-                punct_post_process=punct_post_process,
-                **kwargs
-            )
-            for idx, i in enumerate(range(0, len(lines), batch))
-        )
-
-        # [
-        #     _process_batch(
+        # Parallel(n_jobs=n_jobs)(
+        #     delayed(_process_batch)(
         #         idx,
         #         lines[i : i + batch],
         #         tmp_dir,
-        #         text_field=text_field,
         #         punct_pre_process=punct_pre_process,
         #         punct_post_process=punct_post_process,
-        #         **kwargs,
+        #         **kwargs
         #     )
         #     for idx, i in enumerate(range(0, len(lines), batch))
-        # ]
+        # )
+
+        [
+            _process_batch(
+                idx,
+                lines[i : i + batch],
+                tmp_dir,
+                text_field=text_field,
+                punct_pre_process=punct_pre_process,
+                punct_post_process=punct_post_process,
+                **kwargs,
+            )
+            for idx, i in enumerate(range(0, len(lines), batch))
+        ]
 
         # aggregate all intermediate files
         with open(output_filename, "w") as f_out:
