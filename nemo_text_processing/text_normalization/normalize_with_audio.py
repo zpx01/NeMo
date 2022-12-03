@@ -327,17 +327,9 @@ class NormalizerWithAudio(Normalizer):
         det_norm = super().normalize(
             text=text, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
         )
-        text_for_audio_based = get_alignment(text, det_norm, pred_text, verbose=False)
-
-        semiotic_spans = text_for_audio_based["semiotic"]
-        pred_text_spans = text_for_audio_based["pred_text"]
-        text_with_span_tags_list = text_for_audio_based["standard"].split()
-
-        # find indices of tags
-        masked_idx_list = []
-        for idx, w in enumerate(text_with_span_tags_list):
-            if w == SEMIOTIC_TAG:
-                masked_idx_list.append(idx)
+        semiotic_spans, pred_text_spans, norm_spans, text_with_span_tags_list, masked_idx_list = get_alignment(
+            text, det_norm, pred_text, verbose=False
+        )
 
         sem_tag_idx = 0
         for cur_semiotic_span, cur_pred_text in zip(semiotic_spans, pred_text_spans):
@@ -347,14 +339,19 @@ class NormalizerWithAudio(Normalizer):
                 non_deter_options = self.normalize_non_deterministic(
                     text=cur_semiotic_span, n_tagged=n_tagged, punct_post_process=punct_post_process, verbose=verbose,
                 )
+                try:
+                    best_option, cer, best_idx = self.select_best_match(
+                        normalized_texts=non_deter_options,
+                        input_text=cur_semiotic_span,
+                        pred_text=cur_pred_text,
+                        verbose=verbose,
+                        cer_threshold=-1,
+                    )
+                except:
+                    import pdb
 
-                best_option, cer, best_idx = self.select_best_match(
-                    normalized_texts=non_deter_options,
-                    input_text=cur_semiotic_span,
-                    pred_text=cur_pred_text,
-                    verbose=verbose,
-                    cer_threshold=-1,
-                )
+                    pdb.set_trace()
+                    print()
                 text_with_span_tags_list[masked_idx_list[sem_tag_idx]] = best_option
 
             sem_tag_idx += 1
