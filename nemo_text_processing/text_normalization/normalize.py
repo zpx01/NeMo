@@ -446,6 +446,7 @@ class Normalizer:
                 idx,
                 lines[i : i + batch],
                 tmp_dir,
+                text_field=text_field,
                 punct_pre_process=punct_pre_process,
                 punct_post_process=punct_post_process,
                 **kwargs,

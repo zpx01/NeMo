@@ -130,8 +130,7 @@ class MeasureFst(GraphFst):
 
         unit_graph = (
             pynutil.insert("cardinal { integer: \"-\" } units: \"")
-            + pynini.cross(pynini.union("/", "per"), "per")
-            + delete_zero_or_one_space
+            + ((pynini.cross("/", "per") + delete_zero_or_one_space) | (pynini.accep("per") + pynutil.delete(" ")))
             + pynutil.insert(NEMO_NON_BREAKING_SPACE)
             + graph_unit
             + pynutil.insert("\" preserve_order: true")
