@@ -39,15 +39,6 @@ def _get_alignment(a, b):
             diffs[l_start + len_] = (r_start + len_, r_start + 1 + len_, MATCH)
         non_match_start_l = l_start + length
         non_match_start_r = r_start + length
-
-    # for k, v in diffs.items():
-    #     # import pdb; pdb.set_trace()
-    #     if "Q" in a[k] or True:
-    #         print(f"{k}: {a[k]} -- {b[v[0]:v[1]]} -- {v[2]}")
-    #         #
-    #         # print()
-    # import pdb;
-    # pdb.set_trace()
     return diffs
 
 
@@ -217,7 +208,6 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
                 )
             )
         else:
-            # print(word_id, "2")
             adjusted.append((word_id, norm_raw, norm_pred))
         word_id += 1
 
@@ -287,8 +277,6 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
         cur_norm_span = " ".join(norm_list[item[0][0] : item[0][1]])
 
         if len(cur_pred_text) == 0:
-            # print(f"current: {item}")
-            # import pdb; pdb.set_trace()
             raw_start, raw_end = item[0]
             norm_start, norm_end = item[1]
             pred_start, pred_end = item[2]
@@ -297,11 +285,6 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
                 raw_end = adjusted2[idx][0][1]
                 norm_end = adjusted2[idx][1][1]
                 pred_end = adjusted2[idx][2][1]
-                # print("="*40)
-                # print(item)
-                # print(f"raw : -- {cur_semiotic}")
-                # print(f"pred: -- {cur_pred_text}")
-                # print(f"norm: -- {cur_norm_span}")
             cur_item = ([raw_start, raw_end], [norm_start, norm_end], [pred_start, pred_end], NONMATCH)
             adjusted3.append(cur_item)
             extended_spans.append(len(adjusted3) - 1)
@@ -318,11 +301,6 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
         cur_semiotic = " ".join(raw_list[item[1][0] : item[1][1]])
         cur_pred_text = " ".join(pred_text_list[item[2][0] : item[2][1]])
         cur_norm_span = " ".join(norm_list[item[0][0] : item[0][1]])
-        # print("="*40)
-        # print(item)
-        # print(f"raw : -- {cur_semiotic}")
-        # print(f"pred: -- {cur_pred_text}")
-        # print(f"norm: -- {cur_norm_span}")
 
         if idx == len(adjusted3) - 1:
             cur_norm_span = " ".join(norm_list[item[0][0] : len(norm_list)])
@@ -333,51 +311,29 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
             norm_spans.append(cur_norm_span)
         else:
             raw_text_masked += " " + " ".join(raw_list[item[1][0] : item[1][1]])
-    # print(len(adjusted2), len(adjusted3))
-    # import pdb; pdb.set_trace()
     raw_text_masked_list = raw_text_masked.strip().split()
 
     raw_text_mask_idx = [idx for idx, x in enumerate(raw_text_masked_list) if x == SEMIOTIC_TAG]
-
-    # print("+" * 50)
-    # print("adjusted3:")
-    # for item in adjusted3:
-    #     # import pdb; pdb.set_trace()
-    #     print(f"{raw.split()[item[1][0]: item[1][1]]} -- {pred_text.split()[item[2][0]: item[2][1]]}")
-    #     # print(item)
-    #
-    # print("+" * 50)
     return semiotic_spans, pred_texts, norm_spans, raw_text_masked_list, raw_text_mask_idx
 
 
 def get_alignment(raw, norm, pred_text, verbose: bool = False):
-    import time
-
-    # start_time = time.time()
-    # semiotic_spans = get_semiotic_spans(raw, norm)[0]
-    # print(f'Alignment 1: {round((time.time() - start_time) / 60, 2)} min.')
-
     norm_pred_diffs = _get_alignment(norm, pred_text)
     norm_raw_diffs = _get_alignment(norm, raw)
-    # for i in range(len(norm.split())):
-    #     print(i, norm_raw_diffs[i], norm_pred_diffs[i])
 
     semiotic_spans, pred_texts, norm_spans, raw_text_masked_list, raw_text_mask_idx = adjust_boundaries(
         norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text
     )
 
-    for i in range(len(semiotic_spans)):
-        print("=" * 40)
-        # print(i)
-        print(f"semiotic : {semiotic_spans[i]}")
-        print(f"pred text: {pred_texts[i]}")
-        print(f"norm     : {norm_spans[i]}")
-        print("=" * 40)
-        # import pdb; pdb.set_trace()
-    # print(" ".join(raw_text_masked_list))
-    # import pdb; pdb.set_trace()
-    # [print(i, x) for i, x in enumerate(semiotic_spans) if x == ""]
-    # [print(i, x) for i, x in enumerate(pred_texts) if x == ""]
+    if verbose:
+        for i in range(len(semiotic_spans)):
+            print("=" * 40)
+            # print(i)
+            print(f"semiotic : {semiotic_spans[i]}")
+            print(f"pred text: {pred_texts[i]}")
+            print(f"norm     : {norm_spans[i]}")
+            print("=" * 40)
+
     return semiotic_spans, pred_texts, norm_spans, raw_text_masked_list, raw_text_mask_idx
 
 
@@ -386,50 +342,4 @@ if __name__ == "__main__":
     norm = "This, example: number one thousand five hundred can be a very long one!, and can fail to produce valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and forty nine dollars and one cent, and can fail to terminate, and can fail to terminate, and can fail to terminate, four fifty two."
     pred_text = "this w example nuber viteen hundred can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
 
-    import json
-    from time import perf_counter
-
-    det_manifest = (
-        f"/mnt/sdb/DATA/SPGI/normalization//sample_hour.json"  # deter TN predictions stored in "pred_text" field
-    )
-    with open(det_manifest, "r") as f:
-        for line in f:
-            line = json.loads(line)
-            norm = line["deter_tn"]
-            raw = line["text"]
-            pred_text = line["pred_text"]
-
-    # raw = "This is just the first step of a more ambitious long-term plan to open 1,300 stores in the next 10 years. and Fernando just showed you the phasing of the implementation plan on Slide 20. On Slide 21, we have translated the first 3 years of our transformation plan into a more detailed financial outlook. That will obviously take some time to achieve."
-    # norm = "This is just the first step of a more ambitious long-term plan to open one thousand three hundred stores in the next ten years. and Fernando just showed you the phasing of the implementation plan on Slide twenty. On Slide twenty one, we have translated the first three years of our transformation plan into a more detailed financial outlook. That will obviously take some time to achieve."
-    # pred_text = "he just the firstastate of a more ambitious long term plan to oten thirteen hundred stores in the next ten years and tonata just shows you the phasing of the implementation plan on slyg twenty of flight twenty one we have translated the first three years of our transformation clamb into a more detailed financial outlook am that will obsesly take some time to achieve"
-
-    # raw = "We've got a lot of work ahead of us in Q2 and Q3. But we feel like that we started down the right path."
-    # norm = "We've got a lot of work ahead of us in Q two and Q3 three. But we feel like that we started down the right path."
-    # pred_text = "we've got a lot of work ahead of us and q too and few three but we feel like that we've started down the right path"
-
-    # raw = "Our guidance does not include the impact of future acquisitions. After taking on the additional operational oversights since the departure of our COO, and spending the past three months in the field working directly with our facility CEOs, I can tell you that we are making dramatic improvements across all areas of our clinical operations. had hoped it would. We've got a lot of work ahead of us in Q2 and Q3. But we feel like that we started down the right path."
-    # norm = "Our guidance does not include the impact of future acquisitions. After taking on the additional operational oversights since the departure of our COO, and spending the past three months in the field working directly with our facility CEOs, I can tell you that we are making dramatic improvements across all areas of our clinical operations. had hoped it would. We've got a lot of work ahead of us in Q two and Q three. But we feel like that we started down the right path."
-    # pred_text = "our guidance does not include the impact of future acquisitions after taking on the additional operational oversight since the departure of our c o o and spending the past three months in the field working directly with our facility c e os i can tell you that we are making dramatic improvements across all areas of our clinical operations had hoped it would we've got a lot of work ahead of us and q too and few three but we feel like that we've started down the right path"
-    #
-    raw = "of getting it done this year or at worst case very early into calendar year '19. So things are progressing well there. We also filed for the key state and federal approvals in 2017, and we'll go over that with a chart in a second. We also expect to file rate cases by May for both NYSEG and RG&E for electric and gas by May. The contracts now are expected to be approved by the second quarter of '19, and this just puts it in context with the time frame we expected all along. We received our FERC approval That was filed in September of 2017, and we should have that by mid-2019. And then local and municipal construction approvals will be timed as needed throughout the project. Good afternoon."
-    norm = "of getting it done this year or at worst case very early into calendar year 'nineteen. So things are progressing well there. We also filed for the key state and federal approvals in twenty seventeen, and we'll go over that with a chart in a second. We also expect to file rate cases by May for both NYSEG and RG&E for electric and gas by May. The contracts now are expected to be approved by the second quarter of 'nineteen, and this just puts it in context with the time frame we expected all along. We received our FERC approval That was filed in September of twenty seventeen, and we should have that by mid- twenty nineteen. And then local and municipal construction approvals will be timed as needed throughout the project. Good afternoon."
-    pred_text = "of of getting it done this year or at worst case on very early in to count the year nineteent so things are progressing wele there u we also filed for the key state and federal approvals in two thousand seventeen and will go over that with a chart in a second we also expect to file ratecases by may for both niig and argeni for electric and gas byma the contract now are expected be approved by the second quarter of nineteen and this is puts it in contact with the timeframe we expected all along we received our fork approval that was filed in september of twenty seventeen and we should have that bive id twenty nineteen and then local municipal construction approvals will be timed as needed throughout the project good afternoon"
-    # with open("debug.json", "w") as f:
-    #     item = {"text": raw, "deter_tn": norm, "pred_text": pred_text}
-    #     f.write(json.dumps(item, ensure_ascii=False) + '\n')
-
-    # get_semiotic_spans(norm, pred_text)
-    # print("\n\n")
-    # get_semiotic_spans(pred_text, norm)
-    # import pdb; pdb.set_trace()
-
-    start_time = perf_counter()
-    text_for_audio_based = get_alignment(raw, norm, pred_text, verbose=True)
-    print(f'Execution time: {round((perf_counter() - start_time) / 60, 2)} min.')
-
-    # print(text_for_audio_based)
-
-    # raw = "We have spent the last several years reshaping our branch network, upgrading technology and deepening our focus on our core 6 markets,"
-    # norm = "we have spent the last several years reshaping our branch network upgrading technology and deepening our focus on our core six markets,"
-    #
-    # result = get_semiotic_spans(raw, norm)
+    result = get_semiotic_spans(raw, norm)

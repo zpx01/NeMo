@@ -60,7 +60,7 @@ To normalize text in .json manifest:
         --n_jobs=-1 \
         --batch_size=300 \
         --manifest_text_field="text" \
-        ----whitelist=<PATH TO YOUR WHITELIST>
+        --whitelist=<PATH TO YOUR WHITELIST>
 
 
 To integrate Normalizer in your script:

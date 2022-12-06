@@ -38,7 +38,6 @@ from tqdm import tqdm
 
 try:
     # from nemo.collections.asr.metrics.wer import word_error_rate
-    # from nemo.collections.asr.models import ASRModel
 
     ASR_AVAILABLE = True
 except (ModuleNotFoundError, ImportError):
@@ -50,25 +49,21 @@ The script provides multiple normalization options and chooses the best one that
 (most of the semiotic classes use deterministic=False flag).
 
 To run this script with a .json manifest file, the manifest file should contain the following fields:
-    "audio_data" - path to the audio file
-    "text" - raw text
-    "pred_text" - ASR model prediction
-
-    See https://github.com/NVIDIA/NeMo/blob/main/examples/asr/transcribe_speech.py on how to add ASR predictions
+    "text" - raw text (could be changed using "--manifest_text_field")
+    "pred_text" - ASR model prediction, see https://github.com/NVIDIA/NeMo/blob/main/examples/asr/transcribe_speech.py 
+        on how to transcribe manifest
+    
+    Example for a manifest line:
+        {"text": "In December 2015, ...", "pred_txt": "on december two thousand fifteen"}
 
     When the manifest is ready, run:
         python normalize_with_audio.py \
-               --audio_data PATH/TO/MANIFEST.JSON \
-               --language en
-
-
-To run with a single audio file, specify path to audio and text with:
-    python normalize_with_audio.py \
-           --audio_data PATH/TO/AUDIO.WAV \
-           --language en \
-           --text raw text OR PATH/TO/.TXT/FILE
-           --model QuartzNet15x5Base-En \
-           --verbose
+            --manifest PATH/TO/MANIFEST.JSON \
+            --language en \
+            --output_filename=<PATH TO OUTPUT .JSON MANIFEST> \
+            --n_jobs=-1 \
+            --batch_size=300 \
+            --manifest_text_field="text"
 
 To see possible normalization options for a text input without an audio file (could be used for debugging), run:
     python python normalize_with_audio.py --text "RAW TEXT"
@@ -162,139 +157,136 @@ class NormalizerWithAudio(Normalizer):
             cer_threshold=cer_threshold,
         )
         return best_option
-        # text_for_audio_based["options"].append(options)
-        # text_for_audio_based["audio_selected"].append(best_option)
-        # text_for_audio_based["cer"].append(cer)
 
-    def normalize_split_text_approach(
-        self,
-        text: str,
-        n_tagged: int,
-        punct_post_process: bool = True,
-        verbose: bool = False,
-        pred_text: str = None,
-        **kwargs,
-    ) -> str:
-        """
-        Main function. Normalizes tokens from written to spoken form
-            e.g. 12 kg -> twelve kilograms
-
-        Args:
-            text: string that may include semiotic classes
-            n_tagged: number of tagged options to consider, -1 - to get all possible tagged options
-            punct_post_process: whether to normalize punctuation
-            verbose: whether to print intermediate meta information
-
-        Returns:
-            normalized text options (usually there are multiple ways of normalizing a given semiotic class)
-        """
-
-        text_list = [text]
-        if len(text.split()) > 500:
-            print(
-                "Your input is too long. Please split up the input into sentences, "
-                "or strings with fewer than 500 words"
-            )
-            print("split by sentences")
-            text_list = self.split_text_into_sentences(text)
-
-        semiotic_spans = []
-        semiotic_spans_det_norm = []
-        masked_idx_list = []
-
-        for i in range(len(text_list)):
-            t = text_list[i]
-            cur_det_norm = super().normalize(
-                text=t, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
-            )
-            if t != cur_det_norm:
-                _, cur_sem_span, text_list[i], cur_masked_idx, cur_det_norm_ = get_semiotic_spans(t, cur_det_norm)
-                masked_idx_list.append(cur_masked_idx)
-                semiotic_spans_det_norm.append(cur_det_norm_)
-                semiotic_spans.append(cur_sem_span)
-            else:
-                # TODO refactor to avoid this
-                text_list[i] = t.split()
-                masked_idx_list.append([])
-                semiotic_spans.append([])
-                semiotic_spans_det_norm.append([])
-        try:
-            # no semiotic spans
-            if sum([len(x) for x in semiotic_spans]) == 0:
-                normalized_text = ""
-                for sent in text_list:
-                    normalized_text += " ".join(sent)
-                return normalized_text
-        except Exception as e:
-            print(sent)
-            print(normalized_text)
-            print(f"ERROR: {e}")
-            import pdb
-
-            pdb.set_trace()
-            print()
-        try:
-            # replace all but the target with det_norm option
-            for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
-                for i, semiotic_idx in enumerate(cur_masked_idx_list):
-                    text_list[sent_idx][semiotic_idx] = semiotic_spans_det_norm[sent_idx][i]
-        except:
-            import pdb
-
-            pdb.set_trace()
-            print()
-
-        # create texts to compare against pred_text, all but the current semiotic span use default normalization option # TODO - use the best for processed spans?
-        texts_for_cer = []
-        audio_based_options = []
-        for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
-            texts_for_cer_sent = []
-            audio_based_options_sent = []
-            for i in range(len(cur_masked_idx_list)):
-                try:
-                    options = self.normalize_non_deterministic(
-                        text=semiotic_spans[sent_idx][i],
-                        n_tagged=n_tagged,
-                        punct_post_process=punct_post_process,
-                        verbose=verbose,
-                    )
-                except:
-                    options = semiotic_spans_det_norm[sent_idx][i]
-
-                # replace default normalization options for the current span with each possible audio-based option
-                cur_texts_for_cer = []
-                cur_audio_based_options = []
-                for option in options:
-                    cur_audio_based_options.append(option)
-                    semiotic_idx = cur_masked_idx_list[i]
-                    cur_text = text_list[sent_idx][:semiotic_idx] + [option] + text_list[sent_idx][semiotic_idx + 1 :]
-                    cur_texts_for_cer.append(" ".join(cur_text))
-                texts_for_cer_sent.append(cur_texts_for_cer)
-                audio_based_options_sent.append(cur_audio_based_options)
-            texts_for_cer.append(texts_for_cer_sent)
-            audio_based_options.append(audio_based_options_sent)
-
-        selected_options = []
-        for sent_idx, cur_sent in enumerate(texts_for_cer):
-            cur_sentences_options = []
-            for idx, norm_options in enumerate(cur_sent):
-                best_option, cer, best_idx = self.select_best_match(
-                    normalized_texts=norm_options,
-                    input_text=" ".join(text_list[sent_idx]),
-                    pred_text=pred_text,
-                    verbose=verbose,
-                    cer_threshold=-1,
-                )
-                cur_sentences_options.append(audio_based_options[sent_idx][idx][best_idx])
-            selected_options.append(cur_sentences_options)
-
-        normalized_text = ""
-        for sent_idx in range(len(text_list)):
-            for i, semiotic_idx in enumerate(masked_idx_list[sent_idx]):
-                text_list[sent_idx][semiotic_idx] = selected_options[sent_idx][i]
-
-            normalized_text += " " + " ".join(text_list[sent_idx])
-        return normalized_text.replace("  ", " ")
+    # def normalize_split_text_approach(
+    #     self,
+    #     text: str,
+    #     n_tagged: int,
+    #     punct_post_process: bool = True,
+    #     verbose: bool = False,
+    #     pred_text: str = None,
+    #     **kwargs,
+    # ) -> str:
+    #     """
+    #     Main function. Normalizes tokens from written to spoken form
+    #         e.g. 12 kg -> twelve kilograms
+    #
+    #     Args:
+    #         text: string that may include semiotic classes
+    #         n_tagged: number of tagged options to consider, -1 - to get all possible tagged options
+    #         punct_post_process: whether to normalize punctuation
+    #         verbose: whether to print intermediate meta information
+    #
+    #     Returns:
+    #         normalized text options (usually there are multiple ways of normalizing a given semiotic class)
+    #     """
+    #
+    #     text_list = [text]
+    #     if len(text.split()) > 500:
+    #         print(
+    #             "Your input is too long. Please split up the input into sentences, "
+    #             "or strings with fewer than 500 words"
+    #         )
+    #         print("split by sentences")
+    #         text_list = self.split_text_into_sentences(text)
+    #
+    #     semiotic_spans = []
+    #     semiotic_spans_det_norm = []
+    #     masked_idx_list = []
+    #
+    #     for i in range(len(text_list)):
+    #         t = text_list[i]
+    #         cur_det_norm = super().normalize(
+    #             text=t, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
+    #         )
+    #         if t != cur_det_norm:
+    #             _, cur_sem_span, text_list[i], cur_masked_idx, cur_det_norm_ = get_semiotic_spans(t, cur_det_norm)
+    #             masked_idx_list.append(cur_masked_idx)
+    #             semiotic_spans_det_norm.append(cur_det_norm_)
+    #             semiotic_spans.append(cur_sem_span)
+    #         else:
+    #             # TODO refactor to avoid this
+    #             text_list[i] = t.split()
+    #             masked_idx_list.append([])
+    #             semiotic_spans.append([])
+    #             semiotic_spans_det_norm.append([])
+    #     try:
+    #         # no semiotic spans
+    #         if sum([len(x) for x in semiotic_spans]) == 0:
+    #             normalized_text = ""
+    #             for sent in text_list:
+    #                 normalized_text += " ".join(sent)
+    #             return normalized_text
+    #     except Exception as e:
+    #         print(sent)
+    #         print(normalized_text)
+    #         print(f"ERROR: {e}")
+    #         import pdb
+    #
+    #         pdb.set_trace()
+    #         print()
+    #     try:
+    #         # replace all but the target with det_norm option
+    #         for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
+    #             for i, semiotic_idx in enumerate(cur_masked_idx_list):
+    #                 text_list[sent_idx][semiotic_idx] = semiotic_spans_det_norm[sent_idx][i]
+    #     except:
+    #         import pdb
+    #
+    #         pdb.set_trace()
+    #         print()
+    #
+    #     # create texts to compare against pred_text, all but the current semiotic span use default normalization option # TODO - use the best for processed spans?
+    #     texts_for_cer = []
+    #     audio_based_options = []
+    #     for sent_idx, cur_masked_idx_list in enumerate(masked_idx_list):
+    #         texts_for_cer_sent = []
+    #         audio_based_options_sent = []
+    #         for i in range(len(cur_masked_idx_list)):
+    #             try:
+    #                 options = self.normalize_non_deterministic(
+    #                     text=semiotic_spans[sent_idx][i],
+    #                     n_tagged=n_tagged,
+    #                     punct_post_process=punct_post_process,
+    #                     verbose=verbose,
+    #                 )
+    #             except:
+    #                 options = semiotic_spans_det_norm[sent_idx][i]
+    #
+    #             # replace default normalization options for the current span with each possible audio-based option
+    #             cur_texts_for_cer = []
+    #             cur_audio_based_options = []
+    #             for option in options:
+    #                 cur_audio_based_options.append(option)
+    #                 semiotic_idx = cur_masked_idx_list[i]
+    #                 cur_text = text_list[sent_idx][:semiotic_idx] + [option] + text_list[sent_idx][semiotic_idx + 1 :]
+    #                 cur_texts_for_cer.append(" ".join(cur_text))
+    #             texts_for_cer_sent.append(cur_texts_for_cer)
+    #             audio_based_options_sent.append(cur_audio_based_options)
+    #         texts_for_cer.append(texts_for_cer_sent)
+    #         audio_based_options.append(audio_based_options_sent)
+    #
+    #     selected_options = []
+    #     for sent_idx, cur_sent in enumerate(texts_for_cer):
+    #         cur_sentences_options = []
+    #         for idx, norm_options in enumerate(cur_sent):
+    #             best_option, cer, best_idx = self.select_best_match(
+    #                 normalized_texts=norm_options,
+    #                 input_text=" ".join(text_list[sent_idx]),
+    #                 pred_text=pred_text,
+    #                 verbose=verbose,
+    #                 cer_threshold=-1,
+    #             )
+    #             cur_sentences_options.append(audio_based_options[sent_idx][idx][best_idx])
+    #         selected_options.append(cur_sentences_options)
+    #
+    #     normalized_text = ""
+    #     for sent_idx in range(len(text_list)):
+    #         for i, semiotic_idx in enumerate(masked_idx_list[sent_idx]):
+    #             text_list[sent_idx][semiotic_idx] = selected_options[sent_idx][i]
+    #
+    #         normalized_text += " " + " ".join(text_list[sent_idx])
+    #     return normalized_text.replace("  ", " ")
 
     def normalize(
         self,
@@ -321,8 +313,6 @@ class NormalizerWithAudio(Normalizer):
         #################################
         # LONG AUDIO WITH DIFF APPROACH
         #################################
-
-        from nemo_text_processing.text_normalization.utils_audio_based import get_alignment
 
         det_norm = super().normalize(
             text=text, verbose=verbose, punct_pre_process=False, punct_post_process=punct_post_process
@@ -570,24 +560,6 @@ def calculate_cer(normalized_texts: List[str], pred_text: str, remove_punct=Fals
     return normalized_options
 
 
-def get_asr_model(asr_model):
-    """
-    Returns ASR Model
-
-    Args:
-        asr_model: NeMo ASR model
-    """
-    if os.path.exists(args.model):
-        asr_model = ASRModel.restore_from(asr_model)
-    elif args.model in ASRModel.get_available_model_names():
-        asr_model = ASRModel.from_pretrained(asr_model)
-    else:
-        raise ValueError(
-            f'Provide path to the pretrained checkpoint or choose from {ASRModel.get_available_model_names()}'
-        )
-    return asr_model
-
-
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument("--text", help="input string or path to a .txt file", default=None, type=str)
@@ -597,16 +569,25 @@ def parse_args():
     parser.add_argument(
         "--language", help="Select target language", choices=["en", "ru", "de", "es"], default="en", type=str
     )
-    parser.add_argument("--audio_data", default=None, help="path to an audio file or .json manifest")
+    parser.add_argument("--manifest", default=None, help="path to .json manifest")
     parser.add_argument(
         "--output_filename",
         default=None,
         help="Path of where to save .json manifest with normalization outputs."
-        " It will only be saved if --audio_data is a .json manifest.",
+        " It will only be saved if --manifest is a .json manifest.",
         type=str,
     )
     parser.add_argument(
-        '--model', type=str, default='QuartzNet15x5Base-En', help='Pre-trained model name or path to model checkpoint'
+        '--manifest_text_field',
+        help="A field in .json manifest to normalize (applicable only --manifest is specified)",
+        type=str,
+        default="text",
+    )
+    parser.add_argument(
+        '--manifest_asr_pred_field',
+        help="A field in .json manifest with ASR predictions (applicable only --manifest is specified)",
+        type=str,
+        default="pred_text",
     )
     parser.add_argument(
         "--n_tagged",
@@ -648,8 +629,8 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    if not ASR_AVAILABLE and args.audio_data:
-        raise ValueError("NeMo ASR collection is not installed.")
+    # if not ASR_AVAILABLE and args.manifest:
+    #     raise ValueError("NeMo ASR collection is not installed.")
 
     args.whitelist = os.path.abspath(args.whitelist) if args.whitelist else None
     if args.text is not None:
@@ -674,28 +655,7 @@ if __name__ == "__main__":
         )
         for option in options:
             print(option)
-
-    #     if args.audio_data:
-    #         # asr_model = get_asr_model(args.model)
-    #         # pred_text = asr_model.transcribe([args.audio_data])[0]
-    #         pred_text = "this example number fifteen thousand can be a very lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
-    #         normalized_text, cer = normalizer.select_best_match(
-    #             normalized_texts=normalized_texts,
-    #             pred_text=pred_text,
-    #             input_text=args.text,
-    #             verbose=args.verbose,
-    #             remove_punct=not args.no_remove_punct_for_cer,
-    #             cer_threshold=args.cer_threshold,
-    #         )
-    #         print(f"Transcript: {pred_text}")
-    #         print(f"Normalized: {normalized_text}")
-    #     else:
-    #         print("Normalization options:")
-    #         for norm_text in normalized_texts:
-    #             print(norm_text)
-    # elif not os.path.exists(args.audio_data):
-    #     raise ValueError(f"{args.audio_data} not found.")
-    elif args.audio_data.endswith('.json'):
+    elif args.manifest.endswith('.json'):
         normalizer = NormalizerWithAudio(
             input_case=args.input_case,
             lang=args.language,
@@ -705,19 +665,19 @@ if __name__ == "__main__":
         )
         start = perf_counter()
         normalizer.normalize_manifest(
-            manifest=args.audio_data,
+            manifest=args.manifest,
             n_jobs=args.n_jobs,
             punct_pre_process=True,
             punct_post_process=not args.no_punct_post_process,
             batch_size=args.batch_size,
             output_filename=args.output_filename,
             n_tagged=args.n_tagged,
-            pred_text="pred_text",
+            text_field=args.manifest_text_field,
+            pred_text=args.manifest_asr_pred_field,
         )
     else:
         raise ValueError(
-            "Provide either path to .json manifest in '--audio_data' OR "
-            + "'--audio_data' path to audio file and '--text' path to a text file OR"
-            "'--text' string text (for debugging without audio)"
+            "Provide either path to .json manifest with '--manifest' OR "
+            + "an input text with '--text' (for debugging without audio)"
         )
     print(f'Execution time: {round((perf_counter() - start)/60, 2)} min.')
