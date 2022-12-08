@@ -226,7 +226,7 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
             pred_text_end = item[2][1]
         else:
             adjusted2.append(
-                ([norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status)
+                [[norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status]
             )
             last_status = item[1][2]
             raw_start = item[1][0]
@@ -239,30 +239,18 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
         raw_end = item[1][1]
         pred_text_end = item[2][1]
         adjusted2.append(
-            ([norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status)
+            [[norm_span_start, item[0]], [raw_start, raw_end], [pred_text_start, pred_text_end], last_status]
         )
     else:
         adjusted2.append(
-            (
+            [
                 [adjusted[idx - 1][0], len(norm.split())],
                 [item[1][0], len(raw.split())],
                 [item[2][0], len(pred_text.split())],
                 item[1][2],
-            )
+            ]
         )
 
-    # print("+" * 50)
-    # print("adjusted:")
-    # for item in adjusted2:
-    #     # import pdb; pdb.set_trace()
-    #     print(f"{raw.split()[item[1][0]: item[1][1]]} -- {pred_text.split()[item[2][0]: item[2][1]]}")
-    #     # print(item)
-    #
-    # print("+" * 50)
-    # print("adjusted2:")
-    # for item in adjusted2:
-    #     print(f"{raw.split()[item[1][0]: item[1][1]]} -- {pred_text.split()[item[2][0]: item[2][1]]}")
-    # print("+" * 50)
     raw_list = raw.split()
     pred_text_list = pred_text.split()
     norm_list = norm.split()
@@ -272,22 +260,31 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
     idx = 0
     while idx < len(adjusted2):
         item = adjusted2[idx]
-        cur_semiotic = " ".join(raw_list[item[1][0] : item[1][1]])
-        cur_pred_text = " ".join(pred_text_list[item[2][0] : item[2][1]])
-        cur_norm_span = " ".join(norm_list[item[0][0] : item[0][1]])
+        # cur_semiotic = " ".join(raw_list[item[1][0] : item[1][1]])
+        # cur_pred_text = " ".join(pred_text_list[item[2][0] : item[2][1]])
+        # cur_norm_span = " ".join(norm_list[item[0][0] : item[0][1]])
 
-        if len(cur_pred_text) == 0:
-            raw_start, raw_end = item[0]
-            norm_start, norm_end = item[1]
-            pred_start, pred_end = item[2]
-            while idx < len(adjusted2) - 1 and not ((pred_end - pred_start) > 2 and adjusted2[idx][-1] == MATCH):
-                idx += 1
-                raw_end = adjusted2[idx][0][1]
-                norm_end = adjusted2[idx][1][1]
-                pred_end = adjusted2[idx][2][1]
-            cur_item = ([raw_start, raw_end], [norm_start, norm_end], [pred_start, pred_end], NONMATCH)
-            adjusted3.append(cur_item)
-            extended_spans.append(len(adjusted3) - 1)
+        # if cur_pred_text is an empty string
+        if item[2][0] == item[2][1]:
+            # for the last item
+            if idx == len(adjusted2) - 1 and len(adjusted3) > 0:
+                last_item = adjusted3[-1]
+                last_item[0][1] = item[0][1]
+                last_item[1][1] = item[1][1]
+                last_item[2][1] = item[2][1]
+                last_item[-1] = item[-1]
+            else:
+                raw_start, raw_end = item[0]
+                norm_start, norm_end = item[1]
+                pred_start, pred_end = item[2]
+                while idx < len(adjusted2) - 1 and not ((pred_end - pred_start) > 2 and adjusted2[idx][-1] == MATCH):
+                    idx += 1
+                    raw_end = adjusted2[idx][0][1]
+                    norm_end = adjusted2[idx][1][1]
+                    pred_end = adjusted2[idx][2][1]
+                cur_item = [[raw_start, raw_end], [norm_start, norm_end], [pred_start, pred_end], NONMATCH]
+                adjusted3.append(cur_item)
+                extended_spans.append(len(adjusted3) - 1)
             idx += 1
         else:
             adjusted3.append(item)
@@ -314,6 +311,21 @@ def adjust_boundaries(norm_raw_diffs, norm_pred_diffs, raw, norm, pred_text):
     raw_text_masked_list = raw_text_masked.strip().split()
 
     raw_text_mask_idx = [idx for idx, x in enumerate(raw_text_masked_list) if x == SEMIOTIC_TAG]
+
+    # print("+" * 50)
+    # print("adjusted:")
+    # for item in adjusted2:
+    #     print(f"{raw.split()[item[1][0]: item[1][1]]} -- {pred_text.split()[item[2][0]: item[2][1]]}")
+    #
+    # print("+" * 50)
+    # print("adjusted2:")
+    # for item in adjusted2:
+    #     print(f"{raw.split()[item[1][0]: item[1][1]]} -- {pred_text.split()[item[2][0]: item[2][1]]}")
+    # print("+" * 50)
+    # print("adjusted3:")
+    # for item in adjusted3:
+    #     print(f"{raw.split()[item[1][0]: item[1][1]]} -- {pred_text.split()[item[2][0]: item[2][1]]}")
+    # print("+" * 50)
     return semiotic_spans, pred_texts, norm_spans, raw_text_masked_list, raw_text_mask_idx
 
 
@@ -342,4 +354,8 @@ if __name__ == "__main__":
     norm = "This, example: number one thousand five hundred can be a very long one!, and can fail to produce valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and forty nine dollars and one cent, and can fail to terminate, and can fail to terminate, and can fail to terminate, four fifty two."
     pred_text = "this w example nuber viteen hundred can be a very h lowne one and can fail to produce a valid normalization for such an easy number like ten thousand one hundred twenty five or dollar value five thousand three hundred and fortyn nine dollars and one cent and can fail to terminate and can fail to terminate and can fail to terminate four fifty two"
 
-    result = get_semiotic_spans(raw, norm)
+    raw = 'It immediately took the #4 ranking on Apple and Google app stores prior to any featuring and'
+    pred_text = 'it immediately took the number four ranking on apple and google apt stores prior to any featuring'
+    norm = 'It immediately took the hash four ranking on Apple and Google app stores prior to any featuring and'
+
+    get_alignment(raw, norm, pred_text, True)
