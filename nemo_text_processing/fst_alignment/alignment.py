@@ -163,6 +163,9 @@ def _get_aligned_index(alignment: List[tuple], index: int):
         if alignment[aligned_index][0] != EPS:
             idx += 1
         aligned_index += 1
+    # if index == 162:
+    #     import pdb;pdb.set_trace()
+    #     print()
     while alignment[aligned_index][0] == EPS:
         aligned_index += 1
     return aligned_index
@@ -199,6 +202,10 @@ def indexed_map_to_output(alignment: List[tuple], start: int, end: int):
         output_og_end_index: exclusive end position in output string
     """
     # get aligned start and end of input substring
+    text = "of getting it done this year or at worst case very early into calendar year '19. So things are progressing well there. We also filed for the key state and federal approvals in 2017, and we'll go over that with a chart in a second. We also expect to file rate cases by May for both NYSEG and RG&E for electric and gas by May. The contracts now are expected to be approved by the second quarter of '19, and this just puts it in context with the time frame we expected all along. We received our FERC approval That was filed in September of 2017, and we should have that by mid-2019. And then local and municipal construction approvals will be timed as needed throughout the project. Good afternoon and 5.3"
+    # print("--->", text[start: end])
+
+    # import pdb; pdb.set_trace()
     aligned_start = _get_aligned_index(alignment, start)
     aligned_end = _get_aligned_index(alignment, end - 1)  # inclusive
 
@@ -212,18 +219,25 @@ def indexed_map_to_output(alignment: List[tuple], start: int, end: int):
     ):
         aligned_start -= 1
 
-    while (
-        aligned_end + 1 < len(alignment)
-        and alignment[aligned_end + 1][0] == EPS
-        and (alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS)
-    ):
-        aligned_end += 1
-
-    while (aligned_end + 1) < len(alignment) and (
-        alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS
-    ):
-        aligned_end += 1
-
+    # if end == 163:
+    #     import pdb;pdb.set_trace()
+    #     print()
+    #
+    # while (
+    #     aligned_end + 1 < len(alignment)
+    #     and alignment[aligned_end + 1][0] == EPS
+    #     and (alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS)
+    # ):
+    #     aligned_end += 1
+    #
+    #
+    # while (aligned_end + 1) < len(alignment) and (
+    #     alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS
+    # ):
+    #     aligned_end += 1
+    # if end == 163:
+    #     import pdb;pdb.set_trace()
+    #     print()
     output_og_start_index = _get_original_index(alignment=alignment, aligned_index=aligned_start)
     output_og_end_index = _get_original_index(alignment=alignment, aligned_index=aligned_end + 1)
     return output_og_start_index, output_og_end_index

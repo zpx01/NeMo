@@ -94,8 +94,6 @@ class ClassifyFst(GraphFst):
             )
         if not overwrite_cache and far_file and os.path.exists(far_file):
             self.fst = pynini.Far(far_file, mode='r')['tokenize_and_classify']
-            no_digits = pynini.closure(pynini.difference(NEMO_CHAR, NEMO_DIGIT))
-            self.fst_no_digits = pynini.compose(self.fst, no_digits).optimize()
             logging.info(f'ClassifyFst.fst was restored from {far_file}.')
         else:
             logging.info(f'Creating ClassifyFst grammars. This might take some time...')
@@ -221,9 +219,10 @@ class ClassifyFst(GraphFst):
 
             graph = pynini.compose(graph.optimize(), remove_extra_spaces).optimize()
             self.fst = graph
-            no_digits = pynini.closure(pynini.difference(NEMO_CHAR, NEMO_DIGIT))
-            self.fst_no_digits = pynini.compose(graph, no_digits).optimize()
 
             if far_file:
                 generator_main(far_file, {"tokenize_and_classify": self.fst})
                 logging.info(f'ClassifyFst grammars are saved to {far_file}.')
+
+        no_digits = pynini.closure(pynini.difference(NEMO_CHAR, pynini.union(NEMO_DIGIT, "&")))
+        self.fst_no_digits = pynini.compose(self.fst, no_digits).optimize()
