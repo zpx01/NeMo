@@ -98,6 +98,7 @@ def main(cfg):
 
     # if not os.path.exists(cfg.manifest):
     #     raise ValueError(f"{cfg.manifest} is not found")
+    text = "I live in California. I read a book. Only people who have already gained something are willing to protest, because they see scholarship and contemporary art as a resource for personal emancipation, and have a personal stake in taking it over."
 
     with torch.no_grad():
         # # TODO add s forms handling with this model
