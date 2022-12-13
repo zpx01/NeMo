@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple
 
 import torch
 from hydra.utils import instantiate
-from nemo_text_processing.g2p.data.data_utils import read_wordids
+from nemo_text_processing.g2p.data.data_utils import get_homograph_spans, get_wordid_to_phonemes, read_wordids
 from nemo_text_processing.g2p.data.heteronym_classification_data import HeteronymClassificationDataset
 from omegaconf import DictConfig
 from pytorch_lightning import Trainer
@@ -97,7 +97,11 @@ class HeteronymClassificationModel(NLPModel):
         # apply mask to mask out irrelevant options (elementwise)
         logits = logits * batch["target_and_negatives_mask"].unsqueeze(1)
 
-        loss = self.loss(logits=logits, labels=batch["targets"])
+        if "targets" in batch:
+            loss = self.loss(logits=logits, labels=batch["targets"])
+        else:
+            # skip loss calculation for inference
+            loss = None
         return loss, logits
 
         # Training
@@ -185,15 +189,59 @@ class HeteronymClassificationModel(NLPModel):
     def disambiguate(
         self,
         sentences: List[str],
+        batch_size: int,
+        num_workers: int = 0,
+        wordid_to_phonemes_file: Optional[str] = None,
+    ):
+        """
+        Replaces homographs, supported by the model, with the phoneme form.
+
+        Args:
+            wordid_to_phonemes_file: (Optional) file with mapping between wordid and phoneme
+
+        Returns:
+            preds: model predictions
+            output: sentences with homograph replaced with phonemes (if wordid_to_phonemes_file specified)
+        """
+        if isinstance(sentences, str):
+            sentences = [sentences]
+
+        start_end, homographs = get_homograph_spans(sentences, self.homograph_dict)
+        preds = self._disambiguate(
+            sentences=sentences,
+            start_end=start_end,
+            homographs=homographs,
+            batch_size=batch_size,
+            num_workers=num_workers,
+        )
+
+        wordid_to_phonemes = get_wordid_to_phonemes()
+
+        output = []
+        pred_idx = 0
+        for i, sent_start_end in enumerate(start_end):
+            sent_with_homograph_replaced = ""
+            last_idx = 0
+            for cur_start_end in sent_start_end:
+                cur_start, cur_end = cur_start_end
+                sent_with_homograph_replaced += sentences[i][last_idx:cur_start] + wordid_to_phonemes[preds[pred_idx]]
+                last_idx = cur_end
+                pred_idx += 1
+            if last_idx < len(sentences[i]):
+                sent_with_homograph_replaced += sentences[i][last_idx:]
+            output.append(sent_with_homograph_replaced)
+
+        return preds, output
+
+    @torch.no_grad()
+    def _disambiguate(
+        self,
+        sentences: List[str],
         start_end: List[Tuple[int, int]],
         homographs: List[List[str]],
         batch_size: int,
         num_workers: int = 0,
     ):
-
-        if isinstance(sentences, str):
-            sentences = [sentences]
-
         if len(sentences) != len(start_end) != len(homographs):
             raise ValueError(
                 f"Number of sentences should match the lengths of provided start-end indices, {len(sentences)} != {len(start_end)}"
@@ -219,11 +267,15 @@ class HeteronymClassificationModel(NLPModel):
 
             for batch in infer_datalayer:
                 input_ids, attention_mask, target_and_negatives_mask, subword_mask = batch
-                logits = self.forward(
-                    input_ids=input_ids.to(device),
-                    attention_mask=attention_mask.to(device),
-                    target_and_negatives_mask=target_and_negatives_mask.to(device),
-                )
+
+                # form batch as a dict to use self.make_step easily
+                batch = {
+                    "input_ids": input_ids.to(device),
+                    "attention_mask": attention_mask.to(device),
+                    "target_and_negatives_mask": target_and_negatives_mask.to(device),
+                }
+
+                _, logits = self.make_step(batch)
 
                 preds = torch.argmax(logits, axis=-1)[subword_mask > 0]
                 preds = tensor2list(preds)
@@ -235,7 +287,17 @@ class HeteronymClassificationModel(NLPModel):
         # convert indices to wordids
         idx_to_wordid = {v: k for k, v in self.wordid_to_idx.items()}
         all_preds = [idx_to_wordid[p] for p in all_preds]
-        return all_preds
+
+        # all_preds are flatten here, we need to re-format them to match input sentence
+        all_preds_sent = []
+        pred_idx = 0
+        for sent_start_end in start_end:
+            cur_preds = []
+            for _ in sent_start_end:
+                cur_preds.append(all_preds[pred_idx])
+                pred_idx += 1
+            all_preds_sent.append(cur_preds)
+        return all_preds_sent
 
     @torch.no_grad()
     def disambiguate_manifest(self, manifest, grapheme_field, batch_size: int, num_workers: int = 0):

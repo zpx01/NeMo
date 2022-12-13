@@ -96,16 +96,31 @@ def main(cfg):
 
     logging.info(f'Config Params: {model._cfg}')
 
-    if not os.path.exists(cfg.manifest):
-        raise ValueError(f"{cfg.manifest} is not found")
+    # if not os.path.exists(cfg.manifest):
+    #     raise ValueError(f"{cfg.manifest} is not found")
 
     with torch.no_grad():
-        preds = model.disambiguate_manifest(
-            manifest=cfg.manifest,
-            grapheme_field=cfg.grapheme_field,
+        # # TODO add s forms handling with this model
+        preds = model.disambiguate(
+            sentences=[
+                "I live in California. I read a book. Only people who have already gained something are willing to protest, because they see scholarship and contemporary art as a resource for personal emancipation, and have a personal stake in taking it over.",
+                "Yesterday, I read a book.",
+                "no homographs",
+                "He read a book last night.",
+            ],
             batch_size=cfg.batch_size,
             num_workers=cfg.num_workers,
         )
+        print(preds)
+        import pdb
+
+        pdb.set_trace()
+        # preds = model.disambiguate_manifest(
+        #     manifest=cfg.manifest,
+        #     grapheme_field=cfg.grapheme_field,
+        #     batch_size=cfg.batch_size,
+        #     num_workers=cfg.num_workers,
+        # )
 
     # save predictions to a file
     if cfg.errors_file is None:

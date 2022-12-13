@@ -23,7 +23,7 @@ from typing import Callable, DefaultDict, List, Optional, Tuple, Union
 
 import nltk
 import torch
-from nemo_text_processing.g2p.data.data_utils import english_word_tokenize, get_wordid_to_nemo, ipa_word_tokenize
+from nemo_text_processing.g2p.data.data_utils import english_word_tokenize, get_wordid_to_phonemes, ipa_word_tokenize
 
 from nemo.collections.common.tokenizers.text_to_speech.ipa_lexicon import validate_locale
 from nemo.utils import logging
@@ -384,7 +384,7 @@ class IPAG2P(BaseG2p):
         self, g2p_model, wordid_to_nemo_ipa_file="NeMo/scripts/tts_dataset_files/wordid_to_nemo_cmu.tsv"
     ):
         self.pretrained_g2p_model = g2p_model
-        self.wordid_to_nemo_cmu = get_wordid_to_nemo(wordid_to_nemo_ipa_file)
+        self.wordid_to_nemo_cmu = get_wordid_to_phonemes(wordid_to_nemo_ipa_file)
 
     def _normalize_dict(self, phoneme_dict_obj: dict) -> Tuple[DefaultDict[str, List[List[str]]], Set]:
         """
