@@ -27,6 +27,8 @@ from nemo.utils.exp_manager import exp_manager
 """
 This script runs training and evaluation of HeteronymClassificationModel
 
+To prepare dataset, see NeMo/scripts/dataset_processing/g2p/export_wikihomograph_data_to_manifest.py
+
 To run training and testing:
 python heteronym_classification_train_and_evaluate.py \
     train_manifest=<Path to manifest file>" \
