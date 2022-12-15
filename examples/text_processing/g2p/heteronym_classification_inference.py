@@ -98,12 +98,10 @@ def main(cfg):
 
     # if not os.path.exists(cfg.manifest):
     #     raise ValueError(f"{cfg.manifest} is not found")
-    text = ['I', 'live', 'in', 'California.', 'I', 'read', 'a', 'book.', 'Only', 'people', 'who', 'have', 'already', 'gained', 'something', 'are', 'willing', 'to', 'protest,', 'because', 'they', 'see', 'scholarship', 'and', 'contemporary', 'art', 'as', 'a', 'resource', 'for', 'personal', 'emancipation,', 'and', 'have', 'a', 'personal', 'stake', 'in', 'taking', 'it', 'over.']
-
 
     with torch.no_grad():
         # # TODO add s forms handling with this model
-        preds = model.disambiguate(
+        preds, sentences = model.disambiguate(
             sentences=[
                 "I live in California. I read a book. Only people who have already gained something are willing to protest, because they see scholarship and contemporary art as a resource for personal emancipation, and have a personal stake in taking it over.",
                 "Yesterday, I read a book.",
@@ -113,10 +111,8 @@ def main(cfg):
             batch_size=cfg.batch_size,
             num_workers=cfg.num_workers,
         )
-        print(preds)
-        import pdb
 
-        pdb.set_trace()
+        print()
         # preds = model.disambiguate_manifest(
         #     manifest=cfg.manifest,
         #     grapheme_field=cfg.grapheme_field,

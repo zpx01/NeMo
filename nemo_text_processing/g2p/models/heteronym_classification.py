@@ -218,17 +218,15 @@ class HeteronymClassificationModel(NLPModel):
         wordid_to_phonemes = get_wordid_to_phonemes()
 
         output = []
-        pred_idx = 0
-        for i, sent_start_end in enumerate(start_end):
+        for sent_idx, sent_start_end in enumerate(start_end):
             sent_with_homograph_replaced = ""
             last_idx = 0
-            for cur_start_end in sent_start_end:
+            for homograph_idx, cur_start_end in enumerate(sent_start_end):
                 cur_start, cur_end = cur_start_end
-                sent_with_homograph_replaced += sentences[i][last_idx:cur_start] + wordid_to_phonemes[preds[pred_idx]]
+                sent_with_homograph_replaced += sentences[sent_idx][last_idx:cur_start] + wordid_to_phonemes[preds[sent_idx][homograph_idx]]
                 last_idx = cur_end
-                pred_idx += 1
-            if last_idx < len(sentences[i]):
-                sent_with_homograph_replaced += sentences[i][last_idx:]
+            if last_idx < len(sentences[sent_idx]):
+                sent_with_homograph_replaced += sentences[sent_idx][last_idx:]
             output.append(sent_with_homograph_replaced)
 
         return preds, output
