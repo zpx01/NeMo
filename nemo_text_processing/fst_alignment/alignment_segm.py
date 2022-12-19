@@ -139,9 +139,9 @@ last_segment_word = segmented[segment_id]
 
 start_idx = 0
 end_idx = 1
-import pdb
-
-pdb.set_trace()
+# import pdb
+#
+# pdb.set_trace()
 while end_idx < len(text):
     out_start, out_end = indexed_map_to_output(start=start_idx, end=end_idx, alignment=alignment)
     aligned_output = output_text[out_start:out_end]
@@ -154,9 +154,9 @@ while end_idx < len(text):
         print(segmented[segment_id])
         print(aligned_output)
         print("=" * 40)
-        import pdb
-
-        pdb.set_trace()
+        # import pdb
+        #
+        # pdb.set_trace()
         print()
         segment_id += 1
         start_idx = end_idx
