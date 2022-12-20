@@ -58,23 +58,40 @@ segmented = [
     "point three",
 ]
 
-data_dir = "/media/ebakhturina/DATA/mlops_data/ds_align_data"
-data_dir = "/Users/ebakhturina/Downloads/ds_align_data"
-raw_manifest = f"{data_dir}/raw.json"
-segmented_manifest = f"{data_dir}/segmented.json"
+data_dir = "/media/ebakhturina/DATA/mlops_data/pc_retained"
+# data_dir = "/Users/ebakhturina/Downloads/ds_align_data"
+raw_manifest = f"{data_dir}/raw_sample.json"
+segmented_manifest = f"{data_dir}/segmented_sample.json"
 
+data = {}
 with open(raw_manifest, "r") as f_in:
     for line in f_in:
         line = json.loads(line)
         text = line["text"]
-        text = remove_punctuation(text, do_lower=True, remove_spaces=False, exclude="'")
+        audio = line["audio_filepath"].split("/")[-1].replace(".wav", "")
+        data[audio] = {"raw_text": text}
+        # import pdb; pdb.set_trace()
+        # print()
+        # text = remove_punctuation(text, do_lower=True, remove_spaces=False, exclude="'")
 
-segmented = []
+segmented = {}
 with open(segmented_manifest, "r") as f_in:
     for line in f_in:
         line = json.loads(line)
-        segmented.append(line["text"])
+        audio = line["audio_filepath"].split("/")[-1].split("_")[0]
+        if audio not in segmented:
+            segmented[audio] = []
+        segmented[audio].append(line["text"])
 
+for audio, segmented_lines in segmented.items():
+    if audio not in data:
+        import pdb; pdb.set_trace()
+    else:
+        data[audio]["segmented"] = segmented_lines
+
+text = data["ASbInYbN1Sc"]["raw_text"]
+segmented = data["ASbInYbN1Sc"]["segmented"]
+import pdb; pdb.set_trace()
 # segmented_idx = []
 #
 # start_idx = 0
@@ -103,7 +120,6 @@ alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_t
 # output_text = moses_processor.moses_detokenizer.detokenize([output_text], unescape=False)
 
 indices = get_word_segments(text)
-
 
 def punct_post_process(text):
     text = top_rewrite(text, normalizer.post_processor.fst)
@@ -139,9 +155,7 @@ last_segment_word = segmented[segment_id]
 
 start_idx = 0
 end_idx = 1
-# import pdb
-#
-# pdb.set_trace()
+
 while end_idx < len(text):
     out_start, out_end = indexed_map_to_output(start=start_idx, end=end_idx, alignment=alignment)
     aligned_output = output_text[out_start:out_end]
@@ -159,10 +173,15 @@ while end_idx < len(text):
         # pdb.set_trace()
         print()
         segment_id += 1
+
         start_idx = end_idx
         while start_idx < len(text) and text[start_idx] == " ":
             start_idx += 1
-        # print()
+        import pdb;
+
+        pdb.set_trace()
+        if segment_id < len(segmented):
+            end_idx += len(segmented[segment_id]) - 10
     end_idx += 1
 
 [print(x) for x in restored]
