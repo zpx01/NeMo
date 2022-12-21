@@ -10,11 +10,13 @@ from alignment import (
     get_string_alignment,
     get_word_segments,
     indexed_map_to_output,
+    EPS
 )
 from nemo_text_processing.text_normalization.normalize import Normalizer
 from pynini.lib.rewrite import top_rewrite
 
 from nemo.collections.common.tokenizers.moses_tokenizers import MosesProcessor
+from joblib import Parallel, delayed
 
 # cache_dir = "/home/ebakhturina/NeMo/nemo_text_processing/text_normalization/cache_dir"
 from nemo.utils import logging
@@ -91,7 +93,7 @@ for audio, segmented_lines in segmented.items():
 
 text = data["ASbInYbN1Sc"]["raw_text"]
 segmented = data["ASbInYbN1Sc"]["segmented"]
-import pdb; pdb.set_trace()
+
 # segmented_idx = []
 #
 # start_idx = 0
@@ -115,7 +117,7 @@ moses_processor = MosesProcessor(lang_id=lang)
 fst = pynini.compose(normalizer.tagger.fst, normalizer.verbalizer.fst)
 # fst = pynini.compose(fst, normalizer.post_processor.fst)
 table = create_symbol_table()
-# text = "Hi, the total is $13.5. Please pay using card, in '19"
+text = "Hi, the total is $13.5. Please pay using card, in '19"
 alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
 # output_text = moses_processor.moses_detokenizer.detokenize([output_text], unescape=False)
 
@@ -137,58 +139,101 @@ def punct_post_process(text):
     # return text
 
 
-# print(output_text)
-# print()
-# for x in indices:
-#     start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
-#     # print(f"[{x[0]}:{x[1]}] -- [{start}:{end}]")
-#     print(f"|{text[x[0]:x[1]]}| -- |{output_text[start:end]}|")
-#
-# import pdb; pdb.set_trace()
+print(output_text)
+print()
+for x in indices:
+    start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
+    # print(f"[{x[0]}:{x[1]}] -- [{start}:{end}]")
+    print(f"|{text[x[0]:x[1]]}| -- |{output_text[start:end]}|")
+
+import pdb; pdb.set_trace()
 segment_id = 0
 
-restored = []
+
 text_list = text.split()
 
 cur_segment = ""
 last_segment_word = segmented[segment_id]
 
-start_idx = 0
-end_idx = 1
 
-while end_idx < len(text):
-    out_start, out_end = indexed_map_to_output(start=start_idx, end=end_idx, alignment=alignment)
-    aligned_output = output_text[out_start:out_end]
 
-    aligned_output = punct_post_process(aligned_output)
-    if aligned_output == segmented[segment_id]:
-        restored.append(aligned_output)
-        print("=" * 40)
-        print(text[start_idx:end_idx])
-        print(segmented[segment_id])
-        print(aligned_output)
-        print("=" * 40)
-        # import pdb
-        #
-        # pdb.set_trace()
-        print()
-        segment_id += 1
+def find_segment(segment_id):
+    result = (segment_id, None)
+    done = False
+    bourder = 5
 
-        start_idx = end_idx
-        while start_idx < len(text) and text[start_idx] == " ":
-            start_idx += 1
-        import pdb;
+    start_letter = segmented[segment_id][0]
 
-        pdb.set_trace()
-        if segment_id < len(segmented):
-            end_idx += len(segmented[segment_id]) - 10
-    end_idx += 1
 
-[print(x) for x in restored]
-import pdb
+    tbf = [(x, x) for x in "automatically"]
+    st_idx = 0
+    found = False
+    while st_idx < len(alignment) and not found:
+        if alignment[st_idx: st_idx + len(tbf)] == tbf:
+            found = True
+        else:
+            st_idx += 1
+    # import pdb; pdb.set_trace()
+    # print()
+    for start_idx in [start_idx for start_idx, x in enumerate(alignment) if x[1] == start_letter]:
+        if done:
+            break
 
-pdb.set_trace()
-print()
+        if alignment[start_idx - 1] == (EPS, EPS):
+            start_idx -= 1
+
+        # move start_idx to the first <eps> token
+        while start_idx > 0 and alignment[start_idx - 1] == (EPS, EPS):
+            start_idx -= 1
+
+        end_idx = start_idx + len(segmented[segment_id]) - bourder
+
+        # if start_idx > 48200:
+        #     print(start_idx)
+        #     print(segmented[segment_id])
+        #     print(alignment[start_idx:end_idx])
+        #     import pdb;
+        #     pdb.set_trace()
+        while end_idx < len(alignment) and (end_idx - start_idx) < len(segmented[segment_id]) + bourder and not done:
+            try:
+                out_start, out_end = indexed_map_to_output(start=start_idx, end=end_idx, alignment=alignment)
+            except:
+                end_idx += 1
+                continue
+            aligned_output = output_text[out_start:out_end]
+
+            aligned_output = punct_post_process(aligned_output)
+            if aligned_output == segmented[segment_id]:
+                result = (segment_id, aligned_output)
+                done = True
+                # print("=" * 40)
+                # print(text[start_idx:end_idx])
+                # print(segmented[segment_id])
+                # print(aligned_output)
+                # # print("=" * 40)
+                # # import pdb
+                # #
+                # # pdb.set_trace()
+                # print()
+                # segment_id += 1
+                #
+                # start_idx = end_idx
+                # while start_idx < len(text) and text[start_idx] == " ":
+                #     start_idx += 1
+                # # import pdb;
+                # #
+                # # pdb.set_trace()
+                # if segment_id < len(segmented):
+                #     end_idx += len(segmented[segment_id]) - 10
+            end_idx += 1
+    return result
+
+
+# results = Parallel(n_jobs=16)(delayed(find_segment)(segment_id) for segment_id in range(0, len(segmented)))
+results = find_segment(1)
+
+import pdb; pdb.set_trace()
+
 # # input_text = args.text
 
 
