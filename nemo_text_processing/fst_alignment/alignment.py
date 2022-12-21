@@ -18,6 +18,7 @@ from typing import List
 
 import pynini
 from pynini import Far
+import re
 
 from nemo.utils import logging
 
@@ -101,6 +102,7 @@ def get_word_segments(text: str) -> List[List[int]]:
     """
     Returns word segments from given text based on white space in form of list of index spans.
     """
+    text = re.sub(r" +", " ", text)
     spans = []
     cur_span = [0]
     for idx, ch in enumerate(text):
@@ -108,7 +110,11 @@ def get_word_segments(text: str) -> List[List[int]]:
             cur_span.append(idx)
         elif ch == " ":
             cur_span.append(idx)
-            assert len(cur_span) == 2
+            try:
+                assert len(cur_span) == 2
+            except:
+                import pdb; pdb.set_trace()
+                print()
             spans.append(cur_span)
             cur_span = []
         elif idx == len(text) - 1:
@@ -163,9 +169,6 @@ def _get_aligned_index(alignment: List[tuple], index: int):
         if alignment[aligned_index][0] != EPS:
             idx += 1
         aligned_index += 1
-    # if index == 162:
-    #     import pdb;pdb.set_trace()
-    #     print()
     while alignment[aligned_index][0] == EPS:
         aligned_index += 1
     return aligned_index
@@ -219,25 +222,22 @@ def indexed_map_to_output(alignment: List[tuple], start: int, end: int):
     ):
         aligned_start -= 1
 
-    # if end == 163:
-    #     import pdb;pdb.set_trace()
-    #     print()
-    #
-    # while (
-    #     aligned_end + 1 < len(alignment)
-    #     and alignment[aligned_end + 1][0] == EPS
-    #     and (alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS)
-    # ):
-    #     aligned_end += 1
-    #
-    #
-    # while (aligned_end + 1) < len(alignment) and (
-    #     alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS
-    # ):
-    #     aligned_end += 1
-    # if end == 163:
-    #     import pdb;pdb.set_trace()
-    #     print()
+
+    # start comment
+    while (
+        aligned_end + 1 < len(alignment)
+        and alignment[aligned_end + 1][0] == EPS
+        and (alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS)
+    ):
+        aligned_end += 1
+
+
+    while (aligned_end + 1) < len(alignment) and (
+        alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS
+    ):
+        aligned_end += 1
+    # end comment
+
     output_og_start_index = _get_original_index(alignment=alignment, aligned_index=aligned_start)
     output_og_end_index = _get_original_index(alignment=alignment, aligned_index=aligned_end + 1)
     return output_og_start_index, output_og_end_index

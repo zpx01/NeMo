@@ -115,9 +115,9 @@ normalizer = Normalizer(input_case="cased", cache_dir=cache_dir, overwrite_cache
 moses_processor = MosesProcessor(lang_id=lang)
 # fst = normalizer.tagger.fst
 fst = pynini.compose(normalizer.tagger.fst, normalizer.verbalizer.fst)
-# fst = pynini.compose(fst, normalizer.post_processor.fst)
+fst = pynini.compose(fst, normalizer.post_processor.fst)
 table = create_symbol_table()
-text = "Hi, the total is $13.5. Please pay using card, in '19"
+text = "our coverage or AWS re:Invent 2020. We are theCUBE virtual and I'm your host, Keith Townsend. Today, I'm joined with Steve"
 alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
 # output_text = moses_processor.moses_detokenizer.detokenize([output_text], unescape=False)
 
@@ -139,12 +139,16 @@ def punct_post_process(text):
     # return text
 
 
-print(output_text)
-print()
+# print(output_text)
+# print()
 for x in indices:
     start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
     # print(f"[{x[0]}:{x[1]}] -- [{start}:{end}]")
-    print(f"|{text[x[0]:x[1]]}| -- |{output_text[start:end]}|")
+    norm = output_text[start:end]
+    if len(norm) == 0:
+        import pdb; pdb.set_trace()
+        print()
+    print(f"|{text[x[0]:x[1]]}| -- |{norm}|")
 
 import pdb; pdb.set_trace()
 segment_id = 0
@@ -161,9 +165,7 @@ def find_segment(segment_id):
     result = (segment_id, None)
     done = False
     bourder = 5
-
     start_letter = segmented[segment_id][0]
-
 
     tbf = [(x, x) for x in "automatically"]
     st_idx = 0
