@@ -13,6 +13,7 @@ from alignment import (
     get_string_alignment,
     get_word_segments,
     indexed_map_to_output,
+    remove,
 )
 from joblib import Parallel, delayed
 from nemo_text_processing.text_normalization.normalize import Normalizer
@@ -27,21 +28,30 @@ from nemo.utils import logging
 NA = "n/a"
 
 
-def process(text):
+def clean(text):
     text = text.replace(":", " ").replace("-", " ").replace(" .", ".").replace(" ,", ",").replace(" ?", "?")
 
     text = text.replace("  ", " ")
     return text
 
 
-def process_file(item, key, normalizer, fst, offset=5, output_raw_map=None, use_cache=True):
-    # print(f"processing {key}")
-    #
-    # key = "debug"
-    # item = {'raw_text': "On 12/12/2015 and he gave me $5 then and",
-    #         'segmented': ["he gave me five dollars then", "and"],
-    #         'misc': ""}
-    # # import pdb; pdb.set_trace()
+def build_output_raw_map(alignment, output_text, text):
+    # get TN alignment
+    indices = get_word_segments(text)
+    output_raw_map = []
+
+    for i, x in enumerate(indices):
+        try:
+            start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
+        except:
+            print(f"{key} -- error")
+            return None
+
+    output_raw_map.append([output_text[start:end], text[x[0] : x[1]]])
+    return output_raw_map
+
+
+def process_with_normalizer(item, key, normalizer, fst, offset=5, output_raw_map=None, use_cache=True):
     restored = []
     text = item["raw_text"]
 
@@ -60,13 +70,11 @@ def process_file(item, key, normalizer, fst, offset=5, output_raw_map=None, use_
             pickle.dump(output_text, open(f"output_text_{key}.p", "wb"))
             print("tn output saved")
 
-        from alignment_norm_restoration_after_segmentation import build_output_raw_map
-
+        restored = []
         output_raw_map = build_output_raw_map(alignment, output_text, text)
         if output_raw_map is None:
             return (key, restored)
 
-    start_time = perf_counter()
     last_found_start_idx = 0
     for segment_id in range(0, len(segmented)):
         restored_raw = NA
@@ -87,13 +95,10 @@ def process_file(item, key, normalizer, fst, offset=5, output_raw_map=None, use_
             while not end_found and end_idx <= len(output_raw_map):
                 restored_norm = " ".join([x[0] for x in output_raw_map[last_found_start_idx:][id:end_idx]])
                 restored_raw = " ".join([x[1] for x in output_raw_map[last_found_start_idx:][id:end_idx]])
-                # print("norm:", restored_norm)
-                # print("raw :", restored_raw)
-                # print("segm:", segment)
 
-                processed_raw = process(normalizer.normalize(restored_raw).lower())
-                processed_segment = process(segment.lower())
-                processed_restored = process(restored_norm.lower())
+                processed_raw = clean(normalizer.normalize(restored_raw).lower())
+                processed_segment = clean(segment.lower())
+                processed_restored = clean(restored_norm.lower())
                 if processed_restored == processed_segment or processed_raw == processed_segment:
                     end_found = True
                     last_found_start_idx = end_idx
@@ -104,9 +109,119 @@ def process_file(item, key, normalizer, fst, offset=5, output_raw_map=None, use_
                     break
 
         restored.append(restored_raw)
-    print(f'Restoration {key}: {round((perf_counter() - start_time), 2)} sec.')
-    print(f"done with {key}")
     return (key, restored)
+
+
+def build_output_raw_map(alignment, output_text, text):
+    indices = get_word_segments(text)
+    output_raw_map = []
+
+    for i, x in enumerate(indices):
+        try:
+            start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
+        except:
+            print(f"{key} -- error")
+            return None
+
+        output_raw_map.append([output_text[start:end], text[x[0] : x[1]]])
+    return output_raw_map
+
+
+def get_raw_text_from_alignment(alignment, alignment_start_idx=0, alignment_end_idx=None):
+    if alignment_end_idx is None:
+        alignment_end_idx = len(alignment)
+
+    return "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx : alignment_end_idx + 1]])))
+
+
+def process(item, key, normalizer, fst, use_cache=True, verbose=False):
+    restored = []
+    text = item["raw_text"]
+
+    if "segmented" not in item:
+        return (key, restored)
+
+    segmented = item["segmented"]
+    cached_alignment = f"alignment_{key}.p"
+    if os.path.exists(cached_alignment) and use_cache:
+        alignment = pickle.load(open(f"alignment_{key}.p", "rb"))
+    else:
+        alignment, _ = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
+        pickle.dump(alignment, open(f"alignment_{key}.p", "wb"))
+        print(f"alignment output saved to {cached_alignment}")
+
+    segmented_result = []
+    segmented_indices = []
+    for i, x in enumerate(alignment):
+        value = remove(x[1])
+        if value != "":
+            segmented_result.append(value)
+            segmented_indices.append(i)
+
+    segmented_result = "".join(segmented_result)
+    failed = []
+    alignment_end_idx = None
+    for id, segment in enumerate(segmented):
+        if segment.lower() in segmented_result.lower():
+            segment_start_idx = segmented_result.lower().index(segment.lower())
+            alignment_start_idx = segmented_indices[segment_start_idx]
+            alignment_end_idx = segmented_indices[segment_start_idx + len(segment) - 1]
+
+            if verbose:
+                raw_text = "".join(
+                    list(map(remove, [x[0] for x in alignment[alignment_start_idx : alignment_end_idx + 1]]))
+                )
+                print("=" * 40)
+                print("FOUND:")
+                print(f"RAW : {raw_text}")
+                print(f"SEGM: {segment}")
+                print("=" * 40)
+
+            if len(failed) > 0 and len(failed[-1]) == 3:
+                failed[-1].append(alignment_start_idx)
+                idx = len(failed) - 2
+                while idx >= 0 and len(failed[idx]) == 3:
+                    failed[idx].append(alignment_start_idx)
+                    idx -= 1
+            # alignment_end_idx += 1
+        elif alignment_end_idx is not None:
+            failed.append([id, segment, alignment_end_idx])
+            if id == len(segmented) - 1:
+                failed[-1].append(len(alignment))
+                idx = len(failed) - 2
+                while idx >= 0 and len(failed[idx]) == 3:
+                    failed[idx].append(alignment_start_idx)
+                    idx -= 1
+
+    failed_restored = []
+    for i in range(len(failed)):
+        alignment_start_idx, alignment_end_idx = failed[i][2], failed[i][3]
+        raw_text_ = get_raw_text_from_alignment(
+            alignment, alignment_start_idx=alignment_start_idx, alignment_end_idx=alignment_end_idx
+        )
+        alignment_current = alignment[alignment_start_idx : alignment_end_idx + 1]
+        output_norm_current = "".join(map(remove, [x[1] for x in alignment_current]))
+        item = {"raw_text": raw_text_, "segmented": [failed[i][1]], "misc": ""}
+
+        output_raw_map = build_output_raw_map(alignment_current, output_norm_current, raw_text_)
+
+        if output_raw_map is None:
+            continue
+
+        failed_restored.append(
+            process_with_normalizer(item, "debug", normalizer, fst, output_raw_map=output_raw_map, use_cache=False)
+        )
+
+        if failed_restored[0][-1][0] == NA:
+            print("=" * 40)
+            print(f"RAW : {raw_text_}")
+            print(f"SEGM: {failed[i][1]}")
+            print("=" * 40)
+
+    import pdb
+
+    pdb.set_trace()
+    print()
 
 
 if __name__ == "__main__":
@@ -180,7 +295,7 @@ if __name__ == "__main__":
         for key, item in tqdm(data.items()):
             if key == "AJ4D8gciKb0":
                 try:
-                    all_results[key] = process_file(item, key)[1]
+                    all_results[key] = process(item, key, normalizer, fst)[1]
                     not_found = [(i, r) for i, r in enumerate(all_results[key]) if r == NA]
                     num_not_found = len(not_found)
                     f.write(
@@ -200,6 +315,7 @@ if __name__ == "__main__":
                         print("=" * 40)
                 except Exception as e:
                     print(f"{key} -- FAILED -- {e}")
+                    raise e
                     import pdb
 
                     pdb.set_trace()

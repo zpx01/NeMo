@@ -5,18 +5,21 @@ import string
 
 import pynini
 from alignment import (
+    EPS,
     _get_original_index,
     create_symbol_table,
     get_string_alignment,
     get_word_segments,
     indexed_map_to_output,
-    EPS
+    remove,
 )
+from alignment_norm_restoration_after_segmentation import build_output_raw_map, process_with_normalizer
+from alignment_segm2 import build_output_raw_map, process_file
+from joblib import Parallel, delayed
 from nemo_text_processing.text_normalization.normalize import Normalizer
 from pynini.lib.rewrite import top_rewrite
 
 from nemo.collections.common.tokenizers.moses_tokenizers import MosesProcessor
-from joblib import Parallel, delayed
 
 # cache_dir = "/home/ebakhturina/NeMo/nemo_text_processing/text_normalization/cache_dir"
 from nemo.utils import logging
@@ -87,7 +90,9 @@ with open(segmented_manifest, "r") as f_in:
 
 for audio, segmented_lines in segmented.items():
     if audio not in data:
-        import pdb; pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
     else:
         data[audio]["segmented"] = segmented_lines
 
@@ -117,19 +122,31 @@ moses_processor = MosesProcessor(lang_id=lang)
 fst = pynini.compose(normalizer.tagger.fst, normalizer.verbalizer.fst)
 fst = pynini.compose(fst, normalizer.post_processor.fst)
 table = create_symbol_table()
-text = "On 12/12/2015 and $5"
-segmented = ["On december twelfth twenty fifteen and", "five dollars"]
+text = " Where does New Relic play in that modernization for costumers? You know what I think it's in a couple ways. The ways that we, my organization, can help the costumer in terms of just sheer understanding of the capability of the platform, what are best practices, h"
+segmented = [
+    "where does new relic play in that modernization for costumers you know what i think it's in a couple ways. the ways that we, my organization, can help the costumer in terms of just sheer understanding of the capability of the platform, what are best practices,"
+]
+
+alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
+# output_text = moses_processor.moses_detokenizer.detokenize([output_text], unescape=False)
+
+item = {"raw_text": text, "segmented": segmented, "misc": ""}
+
+output_raw_map = build_output_raw_map(alignment, output_norm_current, raw_text_)
+process_with_normalizer(item, "debug", normalizer, fst, output_raw_map=output_raw_map, use_cache=False)
+
+import pdb
+
+pdb.set_trace()
+print()
+
 
 def get_raw_text_from_alignment(aligment, alignment_start_idx=0, alignment_end_idx=None):
     if alignment_end_idx is None:
         alignment_end_idx = len(aligment)
 
-    return "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx: alignment_end_idx + 1]])))
+    return "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx : alignment_end_idx + 1]])))
 
-alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
-# output_text = moses_processor.moses_detokenizer.detokenize([output_text], unescape=False)
-
-from alignment import remove
 
 segmented_result = []
 segmented_indices = []
@@ -146,7 +163,7 @@ for id, segment in enumerate(segmented):
         segment_start_idx = segmented_result.index(segment)
         alignment_start_idx = segmented_indices[segment_start_idx]
         alignment_end_idx = segmented_indices[segment_start_idx + len(segment) - 1]
-        raw_text = "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx: alignment_end_idx + 1]])))
+        raw_text = "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx : alignment_end_idx + 1]])))
         print(segment)
         print(raw_text)
         if len(failed) > 0 and failed[-1][0] == id - 1:
@@ -158,27 +175,31 @@ for id, segment in enumerate(segmented):
         print(f"FAILED: {segment}")
 
 
-from alignment_segm2 import process_file, build_output_raw_map
 for i in range(len(failed)):
     alignment_start_idx, alignment_end_idx = failed[i][2], failed[i][3]
-    raw_text_ = get_raw_text_from_alignment(alignment, alignment_start_idx=alignment_start_idx, alignment_end_idx=alignment_end_idx)
-    alignment_current = alignment[alignment_start_idx: alignment_end_idx]
+    raw_text_ = get_raw_text_from_alignment(
+        alignment, alignment_start_idx=alignment_start_idx, alignment_end_idx=alignment_end_idx
+    )
+    alignment_current = alignment[alignment_start_idx:alignment_end_idx]
     output_norm_current = "".join(map(remove, [x[1] for x in alignment_current]))
-    item = {"raw_text": raw_text_,
-            "segmented": [failed[i][1]],
-            "misc": ""}
+    item = {"raw_text": raw_text_, "segmented": [failed[i][1]], "misc": ""}
 
     output_raw_map = build_output_raw_map(alignment_current, output_norm_current, raw_text_)
     if output_raw_map is None:
-        import pdb; pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
         print("failed to create the mapping")
 
-    import pdb; pdb.set_trace()
+    import pdb
+
+    pdb.set_trace()
 
     result = process_file(item, "debug", normalizer, fst, output_raw_map=output_raw_map, use_cache=False)
     print()
 
 indices = get_word_segments(text)
+
 
 def punct_post_process(text):
     text = top_rewrite(text, normalizer.post_processor.fst)
@@ -194,15 +215,19 @@ for x in indices:
     # print(f"[{x[0]}:{x[1]}] -- [{start}:{end}]")
     norm = output_text[start:end]
     if len(norm) == 0:
-        import pdb; pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
         print()
     print(f"|{text[x[0]:x[1]]}| -- |{norm}|")
-    import pdb;
+    import pdb
 
     pdb.set_trace()
     print()
 
-import pdb; pdb.set_trace()
+import pdb
+
+pdb.set_trace()
 segment_id = 0
 
 
@@ -210,7 +235,6 @@ text_list = text.split()
 
 cur_segment = ""
 last_segment_word = segmented[segment_id]
-
 
 
 def find_segment(segment_id):
@@ -223,7 +247,7 @@ def find_segment(segment_id):
     st_idx = 0
     found = False
     while st_idx < len(alignment) and not found:
-        if alignment[st_idx: st_idx + len(tbf)] == tbf:
+        if alignment[st_idx : st_idx + len(tbf)] == tbf:
             found = True
         else:
             st_idx += 1
@@ -286,7 +310,9 @@ def find_segment(segment_id):
 # results = Parallel(n_jobs=16)(delayed(find_segment)(segment_id) for segment_id in range(0, len(segmented)))
 results = find_segment(1)
 
-import pdb; pdb.set_trace()
+import pdb
+
+pdb.set_trace()
 
 # # input_text = args.text
 

@@ -13,14 +13,15 @@
 # limitations under the License.
 
 
+import re
 from argparse import ArgumentParser
 from typing import List
 
 import pynini
 from pynini import Far
-import re
 
 from nemo.utils import logging
+
 # logging.setLevel("DEBUG")
 
 """
@@ -113,7 +114,9 @@ def get_word_segments(text: str) -> List[List[int]]:
             try:
                 assert len(cur_span) == 2
             except:
-                import pdb; pdb.set_trace()
+                import pdb
+
+                pdb.set_trace()
                 print()
             spans.append(cur_span)
             cur_span = []
@@ -221,7 +224,6 @@ def indexed_map_to_output(alignment: List[tuple], start: int, end: int):
     ):
         aligned_start -= 1
 
-
     # start comment
     while (
         aligned_end + 1 < len(alignment)
@@ -229,7 +231,6 @@ def indexed_map_to_output(alignment: List[tuple], start: int, end: int):
         and (alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS)
     ):
         aligned_end += 1
-
 
     while (aligned_end + 1) < len(alignment) and (
         alignment[aligned_end + 1][1].isalpha() or alignment[aligned_end + 1][1] == EPS
