@@ -117,10 +117,36 @@ moses_processor = MosesProcessor(lang_id=lang)
 fst = pynini.compose(normalizer.tagger.fst, normalizer.verbalizer.fst)
 fst = pynini.compose(fst, normalizer.post_processor.fst)
 table = create_symbol_table()
-text = "our coverage or AWS re:Invent 2020. We are theCUBE virtual and I'm your host, Keith Townsend. Today, I'm joined with Steve"
+text = "On 12/12/2015 and $5"
+segmented = ["On december twelfth twenty fifteen and", "five dollars"]
+
 alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
 # output_text = moses_processor.moses_detokenizer.detokenize([output_text], unescape=False)
 
+from alignment import remove
+
+segmented_result = []
+segmented_indices = []
+for i, x in enumerate(alignment):
+    value = remove(x[1])
+    if value != "":
+        segmented_result.append(value)
+        segmented_indices.append(i)
+
+segmented_result = "".join(segmented_result)
+
+for segment in segmented:
+    if segment in segmented_result:
+        segment_start_idx = segmented_result.index(segment)
+        alignment_start_idx = segmented_indices[segment_start_idx]
+        alignment_end_idx = segmented_indices[segment_start_idx + len(segment) - 1]
+        raw_text = "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx: alignment_end_idx + 1]])))
+        print(segment)
+        print(raw_text)
+    else:
+        print(f"FAILED: {segment}")
+
+import pdb; pdb.set_trace()
 indices = get_word_segments(text)
 
 def punct_post_process(text):
@@ -141,6 +167,7 @@ def punct_post_process(text):
 
 # print(output_text)
 # print()
+
 for x in indices:
     start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
     # print(f"[{x[0]}:{x[1]}] -- [{start}:{end}]")
@@ -149,6 +176,10 @@ for x in indices:
         import pdb; pdb.set_trace()
         print()
     print(f"|{text[x[0]:x[1]]}| -- |{norm}|")
+    import pdb;
+
+    pdb.set_trace()
+    print()
 
 import pdb; pdb.set_trace()
 segment_id = 0

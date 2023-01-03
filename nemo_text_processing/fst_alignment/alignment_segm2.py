@@ -17,75 +17,13 @@ from tqdm import tqdm
 from nemo.collections.common.tokenizers.moses_tokenizers import MosesProcessor
 from joblib import Parallel, delayed
 import pickle
+from time import perf_counter
 
 # cache_dir = "/home/ebakhturina/NeMo/nemo_text_processing/text_normalization/cache_dir"
 from nemo.utils import logging
 
 NA = "n/a"
 
-
-def find_segment(segment_id: int, output_raw_map, segmented, last_found_start_idx, offset: int=5):
-    """
-    Finds segment with punctuation in capitalization
-
-    segment_id:
-    output_raw_map:
-    segmented:
-    last_found_start_idx:
-
-    Returns:
-    """
-    restored_raw = None
-    norm_text = " ".join([x[0] for x in output_raw_map])
-    norm_text_id = " ".join([x[0] + f"_{i}" for i, x in enumerate(output_raw_map)])
-    raw_text = "|".join([x[1] for x in output_raw_map])
-    cur_segment = segmented[segment_id].split()
-
-    if len(cur_segment) == 0:
-        return restored_raw, last_found_start_idx
-
-    end_match_found = False
-
-    try:
-        pattern = cur_segment[0]
-    except:
-        import pdb; pdb.set_trace()
-        print()
-        print()
-    max_start_match_len = min(4, len(cur_segment))
-    for i in range(1, max_start_match_len):
-        pattern += f"[^A-Za-z]+{cur_segment[i]}"
-
-    pattern = re.compile(pattern)
-    # if key == 'Am4BKyvYBgY' and segment_id == 177:
-    #     [print(x) for x in pattern.finditer(norm_text)]
-    #     import pdb; pdb.set_trace()
-    #     print()
-
-    for i, m in enumerate(pattern.finditer(norm_text.lower()[last_found_start_idx:])):
-        if end_match_found:
-            break
-
-        match_idx = m.start() + last_found_start_idx
-        stop_end_search = False
-        end_idx = len(cur_segment) - offset
-        norm_text_list = norm_text[match_idx:].split()
-
-        while not end_match_found and end_idx <= len(norm_text_list) and not stop_end_search:
-            restored = " ".join(norm_text_list[:end_idx])
-            print(restored)
-            import pdb;
-            pdb.set_trace()
-            if process(restored.lower()) == process(segmented[segment_id].lower()):
-                stop_end_search = True
-                end_match_found = True
-                restored_raw = " ".join(raw_text[match_idx:].split()[:end_idx])
-                last_found_start_idx = end_idx
-            else:
-                end_idx += 1
-                if end_idx > (len(cur_segment) + offset):
-                    stop_end_search = True
-    return restored_raw, last_found_start_idx
 
 def process(text):
     text = (text.replace(":", " ")
@@ -97,8 +35,14 @@ def process(text):
     text = text.replace("  ", " ")
     return text
 
-def process_file(item, key, offset=5):
+def process_file(item, key, offset=5, use_cache=True):
     print(f"processing {key}")
+
+    key = "debug"
+    item = {'raw_text': "On 12/12/2015 and he gave me $5 then and",
+            'segmented': ["he gave me five dollars then", "and"],
+            'misc': ""}
+    # import pdb; pdb.set_trace()
     restored = []
     text = item["raw_text"]
 
@@ -107,40 +51,32 @@ def process_file(item, key, offset=5):
 
     segmented = item["segmented"]
 
-    if os.path.exists(f"alignment_{key}.p"):
+    if os.path.exists(f"alignment_{key}.p") and use_cache:
         alignment = pickle.load(open(f"alignment_{key}.p", "rb"))
         output_text = pickle.load(open(f"output_text_{key}.p", "rb"))
     else:
         alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
         pickle.dump(alignment, open(f"alignment_{key}.p", "wb"))
         pickle.dump(output_text, open(f"output_text_{key}.p", "wb" ))
+        print("tn output saved")
 
     restored = []
+    # get TN alignment
+    start_time = perf_counter()
     indices = get_word_segments(text)
     output_raw_map = []
+
     for i, x in enumerate(indices):
         try:
             start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
         except:
             print(f"{key} -- error")
             return (key, restored)
-            # import pdb; pdb.set_trace()
-            # print()
 
         output_raw_map.append([output_text[start:end], text[x[0]:x[1]]])
-    #     if i < 20:
-    #         norm = output_text[start:end]
-    #         print(f"{i} -- |{text[x[0]:x[1]]}| -- |{norm}|")
-    # import pdb; pdb.set_trace()
-    # print()
+    print(f'FST alignment {key}: {round((perf_counter() - start_time)/60, 2)} min.')
 
-    # if os.path.exists(f"results_{key}.p"):
-    #     results = pickle.load(open(f"results_{key}.p", "rb"))
-    # else:
-    #     results = Parallel(n_jobs=16)(delayed(find_segment)(segment_id, output_raw_map, segmented) for segment_id in range(0, len(segmented)))
-    #     pickle.dump(alignment, open(f"results_{key}.p", "wb"))
-
-
+    start_time = perf_counter()
     last_found_start_idx = 0
     for segment_id in range(0, len(segmented)):
         restored_raw = NA
@@ -152,7 +88,6 @@ def process_file(item, key, offset=5):
             restored.append(restored_raw)
             continue
         first_word = segment_list[0]
-
         for id in [i for i, x in enumerate(output_raw_map[last_found_start_idx:]) if first_word.lower() in x[0].lower()]:
             if end_found:
                 break
@@ -160,24 +95,24 @@ def process_file(item, key, offset=5):
             while not end_found and end_idx <= len(output_raw_map):
                 restored_norm = " ".join([x[0] for x in output_raw_map[last_found_start_idx:][id: end_idx]])
                 restored_raw = " ".join([x[1] for x in output_raw_map[last_found_start_idx:][id: end_idx]])
+                # print("norm:", restored_norm)
+                # print("raw :", restored_raw)
+                # print("segm:", segment)
 
-                # if segment_id in [14, 16, 24, 38, 42, 79, 85, 89, 91, 95, 101, 106, 114, 136, 141, 145, 151, 158, 165, 168, 172, 178, 179, 181, 186, 187, 212, 225, 228] and len(segment_list) > 5:
-                #     print("norm:", restored_norm)
-                #     print("raw :", restored_raw)
-                #     print("segm:", segment)
-                #     import pdb; pdb.set_trace()
-                #     print()
-
-
-                if process(restored_norm.lower()) == process(segment.lower()):
+                processed_raw = process(normalizer.normalize(restored_raw).lower())
+                processed_segment = process(segment.lower())
+                processed_restored = process(restored_norm.lower())
+                if processed_restored == processed_segment or processed_raw == processed_segment:
                     end_found = True
                     last_found_start_idx = end_idx
-                elif process(segment.lower()).startswith(process(restored_norm.lower())):
+                elif processed_segment.startswith(processed_restored) or processed_segment.startswith(processed_raw):
                     end_idx += 1
                 else:
+                    restored_raw = NA
                     break
 
         restored.append(restored_raw)
+    print(f'Restoration {key}: {round((perf_counter() - start_time), 2)} sec.')
     print(f"done with {key}")
     return (key, restored)
 
@@ -231,7 +166,7 @@ if __name__ == "__main__":
 
     # remove data where there are no corresponding segmented samples
     audio_data_to_del = [audio for audio in data if "segmented" not in data[audio].keys()]
-    print(f"removing {audio_data_to_del} samples")
+    print(f"No corresponding segments found for {audio_data_to_del}, removing")
     for key in audio_data_to_del:
         del data[key]
 
@@ -250,7 +185,7 @@ if __name__ == "__main__":
     all_results = {}
     with open("log.txt", "w") as f:
         for key, item in tqdm(data.items()):
-            if key == "AFDkXSGI2qA" or True:
+            if key == "AJ4D8gciKb0":
                 try:
                     all_results[key] = process_file(item, key)[1]
                     not_found = [(i, r) for i, r in enumerate(all_results[key]) if r == NA]
@@ -278,8 +213,7 @@ if __name__ == "__main__":
     pdb.set_trace()
     print()
 
-    data = {"AFDkXSGI2qA": data["AFDkXSGI2qA"]}
-    results = Parallel(n_jobs=16)(delayed(process_file)(item, key) for key, item in tqdm(data.items()))
+    # results = Parallel(n_jobs=16)(delayed(process_file)(item, key) for key, item in tqdm(data.items()))
 
     print("DONE with parallel")
 

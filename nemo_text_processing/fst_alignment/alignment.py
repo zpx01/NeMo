@@ -21,7 +21,7 @@ from pynini import Far
 import re
 
 from nemo.utils import logging
-
+# logging.setLevel("DEBUG")
 
 """
 This files takes 1. Far file containing a fst graph created by TN or ITN 2. entire string.
@@ -130,10 +130,12 @@ def create_symbol_table() -> pynini.SymbolTable:
     Creates and returns Pynini SymbolTable used to label alignment with ascii instead of integers
     """
     table = pynini.SymbolTable()
-    for num in range(34, 200):  # ascii alphanum + letter range
-        table.add_symbol(chr(num), num)
-    table.add_symbol(EPS, 0)
+    for num in range(33, 200):  # ascii alphanum + letter range
+        if num != 32:
+            table.add_symbol(chr(num), num)
+
     table.add_symbol(WHITE_SPACE, 32)
+    table.add_symbol(EPS, 0)
     return table
 
 
@@ -178,7 +180,6 @@ def _get_original_index(alignment, aligned_index):
     """
     Given index in aligned output, returns corresponding index in contracted output string
     """
-
     og_index = 0
     idx = 0
     while idx < aligned_index:
@@ -205,10 +206,8 @@ def indexed_map_to_output(alignment: List[tuple], start: int, end: int):
         output_og_end_index: exclusive end position in output string
     """
     # get aligned start and end of input substring
-    text = "of getting it done this year or at worst case very early into calendar year '19. So things are progressing well there. We also filed for the key state and federal approvals in 2017, and we'll go over that with a chart in a second. We also expect to file rate cases by May for both NYSEG and RG&E for electric and gas by May. The contracts now are expected to be approved by the second quarter of '19, and this just puts it in context with the time frame we expected all along. We received our FERC approval That was filed in September of 2017, and we should have that by mid-2019. And then local and municipal construction approvals will be timed as needed throughout the project. Good afternoon and 5.3"
+    # text = "that got people. Fired up! Yeah. Clapping, and fired up."
     # print("--->", text[start: end])
-
-    # import pdb; pdb.set_trace()
     aligned_start = _get_aligned_index(alignment, start)
     aligned_end = _get_aligned_index(alignment, end - 1)  # inclusive
 
