@@ -21,56 +21,21 @@ import pickle
 # cache_dir = "/home/ebakhturina/NeMo/nemo_text_processing/text_normalization/cache_dir"
 from nemo.utils import logging
 
-
-raw_text = ""
-norm_text = ""
-data_dir = "/media/ebakhturina/DATA/mlops_data/pc_retained"
-raw_manifest = f"{data_dir}/raw.json"
-segmented_manifest = f"{data_dir}/segmented.json"
-
-data = {}
-with open(raw_manifest, "r") as f_in:
-    for line in f_in:
-        line = json.loads(line)
-        text = re.sub(r" +", " ", line["text"])
-        audio = line["audio_filepath"].split("/")[-1].replace(".wav", "")
-        data[audio] = {"raw_text": text}
-
-segmented = {}
-with open(segmented_manifest, "r") as f_in:
-    for line in f_in:
-        line = json.loads(line)
-        text = re.sub(r" +", " ", line["text"])
-        audio = "_".join(line["audio_filepath"].split("/")[-1].split("_")[:-1])
-        if audio not in segmented:
-            segmented[audio] = []
-        segmented[audio].append(line["text"])
-
-for audio, segmented_lines in segmented.items():
-    if audio not in data:
-        import pdb; pdb.set_trace()
-    else:
-        data[audio]["segmented"] = [l for l in segmented_lines if len(l) > 0]
+NA = "n/a"
 
 
+def find_segment(segment_id: int, output_raw_map, segmented, last_found_start_idx, offset: int=5):
+    """
+    Finds segment with punctuation in capitalization
 
+    segment_id:
+    output_raw_map:
+    segmented:
+    last_found_start_idx:
 
-
-
-cache_dir = "cache_dir"
-lang = "en"
-normalizer = Normalizer(input_case="cased", cache_dir=cache_dir, overwrite_cache=False, lang=lang)
-
-# moses_processor = MosesProcessor(lang_id=lang)
-# fst = normalizer.tagger.fst
-fst = pynini.compose(normalizer.tagger.fst, normalizer.verbalizer.fst)
-fst = pynini.compose(fst, normalizer.post_processor.fst)
-table = create_symbol_table()
-
-def find_segment(segment_id, output_raw_map, segmented, last_found_start_idx):
+    Returns:
+    """
     restored_raw = None
-    offset = 5
-
     norm_text = " ".join([x[0] for x in output_raw_map])
     norm_text_id = " ".join([x[0] + f"_{i}" for i, x in enumerate(output_raw_map)])
     raw_text = "|".join([x[1] for x in output_raw_map])
@@ -132,13 +97,13 @@ def process(text):
     text = text.replace("  ", " ")
     return text
 
-def process_file(item, key):
-    missing = 0
-    results = []
+def process_file(item, key, offset=5):
+    print(f"processing {key}")
+    restored = []
     text = item["raw_text"]
 
     if "segmented" not in item:
-        return results, missing
+        return (key, restored)
 
     segmented = item["segmented"]
 
@@ -150,14 +115,17 @@ def process_file(item, key):
         pickle.dump(alignment, open(f"alignment_{key}.p", "wb"))
         pickle.dump(output_text, open(f"output_text_{key}.p", "wb" ))
 
+    restored = []
     indices = get_word_segments(text)
     output_raw_map = []
     for i, x in enumerate(indices):
         try:
             start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
         except:
-            import pdb; pdb.set_trace()
-            print()
+            print(f"{key} -- error")
+            return (key, restored)
+            # import pdb; pdb.set_trace()
+            # print()
 
         output_raw_map.append([output_text[start:end], text[x[0]:x[1]]])
     #     if i < 20:
@@ -174,9 +142,8 @@ def process_file(item, key):
 
 
     last_found_start_idx = 0
-    restored = []
     for segment_id in range(0, len(segmented)):
-        restored_raw = "n/a"
+        restored_raw = NA
         segment = segmented[segment_id]
         segment_list = segment.split()
 
@@ -189,7 +156,6 @@ def process_file(item, key):
         for id in [i for i, x in enumerate(output_raw_map[last_found_start_idx:]) if first_word.lower() in x[0].lower()]:
             if end_found:
                 break
-            offset = 5
             end_idx = id + (len(segment_list) - offset)
             while not end_found and end_idx <= len(output_raw_map):
                 restored_norm = " ".join([x[0] for x in output_raw_map[last_found_start_idx:][id: end_idx]])
@@ -212,47 +178,110 @@ def process_file(item, key):
                     break
 
         restored.append(restored_raw)
+    print(f"done with {key}")
+    return (key, restored)
 
-    return restored
-                # import pdb; pdb.set_trace()
-                # print()
+if __name__ == "__main__":
+    raw_text = ""
+    norm_text = ""
+    data_dir = "/media/ebakhturina/DATA/mlops_data/pc_retained"
+    raw_manifest = f"{data_dir}/raw.json"
+    segmented_manifest = f"{data_dir}/segmented.json"
 
-    #     result, last_found_start_idx = find_segment(segment_id, output_raw_map, segmented, last_found_start_idx)
-    #     results.append(result)
-    #
-    # for id, result in enumerate(results):
-    #     if result is None:
-    #         # print("segm:", segmented[segment_id])
-    #         # print("raw :", results)
-    #         # print("+" * 40)
-    #         missing += 1
-    #         # # # print(results)
-    #         # print(key, "---", segment_id)
-    #         import pdb; pdb.set_trace()
-    #         print()
-    # print(f"missing: {key} -- {missing}")
-    # return results, missing
+    # for every audio file store "raw" and "segmented" samples
+    # data["Am4BKyvYBgY"].keys()
+    # >> dict_keys(['raw_text', 'segmented'])
 
-all_results = {}
-with open("log.txt", "w") as f:
-    for key, item in tqdm(data.items()):
-        if key == "ASbInYbN1Sc":
-            try:
-                all_results[key] = process_file(item, key)
-                num_not_found = len([r for r in all_results[key] if r == "n/a"])
-                print(f'{key} -- number not found: {num_not_found} out of {len(all_results[key])} ({round(num_not_found/len(all_results[key])*100, 1)}%)')
-                f.write(f'{key} -- number not found: {num_not_found} out of {len(all_results[key])} ({round(num_not_found/len(all_results[key])*100, 1)}%)')
-                f.write("\n")
-                # print([i for i, r in enumerate(all_results[key]) if r == "n/a"])
-            except Exception as e:
-                print(f"{key} -- FAILED -- {e}")
-                f.write(f"{key} -- FAILED -- {e}")
-                f.write("\n")
-                raise e
+    data = {}
+    # read raw manifest
+    with open(raw_manifest, "r") as f_in:
+        for line in f_in:
+            line = json.loads(line)
+            text = re.sub(r" +", " ", line["text"])
+            audio = line["audio_filepath"].split("/")[-1].replace(".wav", "")
+            data[audio] = {"raw_text": text}
 
+    segmented = {}
+    misc_data = {}
+    # read manifest after segmentation
+    with open(segmented_manifest, "r") as f_in:
+        for line in f_in:
+            line = json.loads(line)
+            text = re.sub(r" +", " ", line["text"])
+            audio = "_".join(line["audio_filepath"].split("/")[-1].split("_")[:-1])
 
-# results = Parallel(n_jobs=16)(delayed(process_file)(item, key) for key, item in tqdm(data.items()))
+            if audio not in segmented:
+                segmented[audio] = []
+                misc_data[audio] = []
+            segmented[audio].append(line["text"])
+            misc_data[audio].append(line)
 
+    for audio in segmented:
+        segmented_lines = segmented[audio]
+        misc_line_data = misc_data[audio]
 
-import pdb; pdb.set_trace()
-print()
+        if audio not in data:
+            print(f"{audio} from {segmented_manifest} is missing in the {raw_manifest}")
+        else:
+            data[audio]["segmented"], data[audio]["misc"] = [], []
+            for segm, misc in zip(segmented_lines, misc_line_data):
+                if len(segm) > 0:
+                    data[audio]["segmented"].append(segm)
+                    data[audio]["misc"].append(misc)
+
+    # remove data where there are no corresponding segmented samples
+    audio_data_to_del = [audio for audio in data if "segmented" not in data[audio].keys()]
+    print(f"removing {audio_data_to_del} samples")
+    for key in audio_data_to_del:
+        del data[key]
+
+    # normalize raw manifest for alignment
+    cache_dir = "cache_dir"
+    lang = "en"
+    normalizer = Normalizer(input_case="cased", cache_dir=cache_dir, overwrite_cache=False, lang=lang)
+
+    # moses_processor = MosesProcessor(lang_id=lang)
+    # fst = normalizer.tagger.fst
+    fst = pynini.compose(normalizer.tagger.fst, normalizer.verbalizer.fst)
+    fst = pynini.compose(fst, normalizer.post_processor.fst)
+    table = create_symbol_table()
+
+    verbose = True
+    all_results = {}
+    with open("log.txt", "w") as f:
+        for key, item in tqdm(data.items()):
+            if key == "AFDkXSGI2qA" or True:
+                try:
+                    all_results[key] = process_file(item, key)[1]
+                    not_found = [(i, r) for i, r in enumerate(all_results[key]) if r == NA]
+                    num_not_found = len(not_found)
+                    f.write(f'{key} -- number not found: {num_not_found} out of {len(all_results[key])} ({round(num_not_found/len(all_results[key])*100, 1)}%)')
+                    f.write("\n")
+
+                    if verbose:
+                        print("=" * 40)
+                        print(f'{key} -- number not found: {num_not_found} out of {len(all_results[key])} ({round(num_not_found / len(all_results[key]) * 100, 1)}%)')
+
+                        if num_not_found > 0:
+                            for idx, _ in not_found:
+                                print(data[key]["segmented"][idx])
+                        print("=" * 40)
+                except Exception as e:
+                    print(f"{key} -- FAILED -- {e}")
+                    import pdb; pdb.set_trace()
+                    f.write(f"{key} -- FAILED -- {e}")
+                    f.write("\n")
+                    raise e
+
+    import pdb;
+
+    pdb.set_trace()
+    print()
+
+    data = {"AFDkXSGI2qA": data["AFDkXSGI2qA"]}
+    results = Parallel(n_jobs=16)(delayed(process_file)(item, key) for key, item in tqdm(data.items()))
+
+    print("DONE with parallel")
+
+    import pdb; pdb.set_trace()
+    print()
