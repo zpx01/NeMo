@@ -35,32 +35,7 @@ def process(text):
     text = text.replace("  ", " ")
     return text
 
-def process_file(item, key, offset=5, use_cache=True):
-    print(f"processing {key}")
-
-    key = "debug"
-    item = {'raw_text': "On 12/12/2015 and he gave me $5 then and",
-            'segmented': ["he gave me five dollars then", "and"],
-            'misc': ""}
-    # import pdb; pdb.set_trace()
-    restored = []
-    text = item["raw_text"]
-
-    if "segmented" not in item:
-        return (key, restored)
-
-    segmented = item["segmented"]
-
-    if os.path.exists(f"alignment_{key}.p") and use_cache:
-        alignment = pickle.load(open(f"alignment_{key}.p", "rb"))
-        output_text = pickle.load(open(f"output_text_{key}.p", "rb"))
-    else:
-        alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
-        pickle.dump(alignment, open(f"alignment_{key}.p", "wb"))
-        pickle.dump(output_text, open(f"output_text_{key}.p", "wb" ))
-        print("tn output saved")
-
-    restored = []
+def build_output_raw_map(alignment, output_text, text):
     # get TN alignment
     start_time = perf_counter()
     indices = get_word_segments(text)
@@ -71,10 +46,42 @@ def process_file(item, key, offset=5, use_cache=True):
             start, end = indexed_map_to_output(start=x[0], end=x[1], alignment=alignment)
         except:
             print(f"{key} -- error")
-            return (key, restored)
+            return None
 
-        output_raw_map.append([output_text[start:end], text[x[0]:x[1]]])
-    print(f'FST alignment {key}: {round((perf_counter() - start_time)/60, 2)} min.')
+    output_raw_map.append([output_text[start:end], text[x[0]:x[1]]])
+    print(f'FST alignment: {round((perf_counter() - start_time) / 60, 2)} min.')
+    return output_raw_map
+
+def process_file(item, key, normalizer, fst, offset=5, output_raw_map=None, use_cache=True):
+    # print(f"processing {key}")
+    #
+    # key = "debug"
+    # item = {'raw_text': "On 12/12/2015 and he gave me $5 then and",
+    #         'segmented': ["he gave me five dollars then", "and"],
+    #         'misc': ""}
+    # # import pdb; pdb.set_trace()
+    restored = []
+    text = item["raw_text"]
+
+    if "segmented" not in item:
+        return (key, restored)
+
+    segmented = item["segmented"]
+
+    if output_raw_map is None:
+        if os.path.exists(f"alignment_{key}.p") and use_cache:
+            alignment = pickle.load(open(f"alignment_{key}.p", "rb"))
+            output_text = pickle.load(open(f"output_text_{key}.p", "rb"))
+        else:
+            alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
+            pickle.dump(alignment, open(f"alignment_{key}.p", "wb"))
+            pickle.dump(output_text, open(f"output_text_{key}.p", "wb" ))
+            print("tn output saved")
+
+        restored = []
+        output_raw_map = build_output_raw_map(alignment, output_text, text)
+        if output_raw_map is None:
+            return (key, restored)
 
     start_time = perf_counter()
     last_found_start_idx = 0

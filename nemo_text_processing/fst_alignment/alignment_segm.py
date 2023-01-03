@@ -120,6 +120,12 @@ table = create_symbol_table()
 text = "On 12/12/2015 and $5"
 segmented = ["On december twelfth twenty fifteen and", "five dollars"]
 
+def get_raw_text_from_alignment(aligment, alignment_start_idx=0, alignment_end_idx=None):
+    if alignment_end_idx is None:
+        alignment_end_idx = len(aligment)
+
+    return "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx: alignment_end_idx + 1]])))
+
 alignment, output_text = get_string_alignment(fst=fst, input_text=text, symbol_table=table)
 # output_text = moses_processor.moses_detokenizer.detokenize([output_text], unescape=False)
 
@@ -134,8 +140,8 @@ for i, x in enumerate(alignment):
         segmented_indices.append(i)
 
 segmented_result = "".join(segmented_result)
-
-for segment in segmented:
+failed = []
+for id, segment in enumerate(segmented):
     if segment in segmented_result:
         segment_start_idx = segmented_result.index(segment)
         alignment_start_idx = segmented_indices[segment_start_idx]
@@ -143,26 +149,41 @@ for segment in segmented:
         raw_text = "".join(list(map(remove, [x[0] for x in alignment[alignment_start_idx: alignment_end_idx + 1]])))
         print(segment)
         print(raw_text)
+        if len(failed) > 0 and failed[-1][0] == id - 1:
+            failed[-1].append(alignment_start_idx)
     else:
+        failed.append([id, segment, alignment_end_idx + 1])
+        if id == len(segmented) - 1:
+            failed[-1].append(len(alignment))
         print(f"FAILED: {segment}")
 
-import pdb; pdb.set_trace()
+
+from alignment_segm2 import process_file, build_output_raw_map
+for i in range(len(failed)):
+    alignment_start_idx, alignment_end_idx = failed[i][2], failed[i][3]
+    raw_text_ = get_raw_text_from_alignment(alignment, alignment_start_idx=alignment_start_idx, alignment_end_idx=alignment_end_idx)
+    alignment_current = alignment[alignment_start_idx: alignment_end_idx]
+    output_norm_current = "".join(map(remove, [x[1] for x in alignment_current]))
+    item = {"raw_text": raw_text_,
+            "segmented": [failed[i][1]],
+            "misc": ""}
+
+    output_raw_map = build_output_raw_map(alignment_current, output_norm_current, raw_text_)
+    if output_raw_map is None:
+        import pdb; pdb.set_trace()
+        print("failed to create the mapping")
+
+    import pdb; pdb.set_trace()
+
+    result = process_file(item, "debug", normalizer, fst, output_raw_map=output_raw_map, use_cache=False)
+    print()
+
 indices = get_word_segments(text)
 
 def punct_post_process(text):
     text = top_rewrite(text, normalizer.post_processor.fst)
     text = moses_processor.moses_detokenizer.detokenize([text], unescape=False)
     return text
-
-    # text = (text.replace('tokens { name: "', "")
-    # 		.replace('" }', "")
-    # 		.replace('preserve_order: true }', '')
-    # 		.replace('preserve_order: false }', '')
-    # 		.replace(' } ', '')
-    # 		.replace("  ", " ")
-    # 		.replace(" .", ".")
-    # 		.replace(" ,", ","))
-    # return text
 
 
 # print(output_text)
