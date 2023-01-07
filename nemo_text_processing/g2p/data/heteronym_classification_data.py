@@ -95,8 +95,7 @@ class HeteronymClassificationDataset(Dataset):
 
                 example_dict = {
                     "input_ids": example[0],
-                    "target_and_negatives": example[1],
-                    "subtokens_mask": example[2],
+                    "subtokens_mask": example[1],
                 }
                 if with_labels:
                     example_dict["target"] = example[-1]
@@ -133,7 +132,7 @@ class HeteronymClassificationDataset(Dataset):
         # add bos token
         input_ids = [self.tokenizer.bos_id]
         subtokens_mask = [self.PAD_TOKEN]  # the first tokens of heteronym spans are 1s, the rest of the tokens are 0s
-        target_and_negatives = []
+
         if self.with_labels:
             target_word_ids = [self.LOSS_PAD_TOKEN]  # -100 to pad plain tokens
 
@@ -178,7 +177,6 @@ class HeteronymClassificationDataset(Dataset):
                     return None
 
                 grapheme_ipa_forms = self.wiki_homograph_dict[heteronym]
-                target_and_negatives.extend([self.wordid_to_idx[wordid_] for wordid_ in grapheme_ipa_forms])
                 heteronym_span_idx += 1
             else:
                 ids = self.tokenizer.text_to_ids(word)
@@ -197,10 +195,10 @@ class HeteronymClassificationDataset(Dataset):
         if self.with_labels:
             target_word_ids.append(self.LOSS_PAD_TOKEN)
 
-        output = [input_ids, target_and_negatives, subtokens_mask]
+        output = [input_ids, subtokens_mask]
         if self.with_labels:
             output.append(target_word_ids)
-        return output  # [input_ids, target_and_negatives, subtokens_mask, [Optional] target]
+        return output  # [input_ids, subtokens_mask, [Optional] target]
 
     def __len__(self):
         return len(self.data)
@@ -218,7 +216,7 @@ class HeteronymClassificationDataset(Dataset):
     def _collate_fn(self, batch):
         """
         Args:
-            batch:  A list of tuples of (input_ids, target_and_negatives, subtokens_mask, [Optional] target_word_ids).
+            batch:  A list of tuples of (input_ids, subtokens_mask, [Optional] target_word_ids).
         """
         max_length = max([len(entry["input_ids"]) for entry in batch])
 
@@ -250,18 +248,9 @@ class HeteronymClassificationDataset(Dataset):
                 if self.with_labels:
                     padded_targets.append(item["target"])
 
-        batch_size = len(batch)
-        num_classes = len(self.wordid_to_idx)
-        target_and_negatives = [entry["target_and_negatives"] for entry in batch]
-        target_and_negatives_mask = torch.zeros(batch_size, num_classes)
-        for i, cur_target_and_negatives in enumerate(target_and_negatives):
-            for value in cur_target_and_negatives:
-                target_and_negatives_mask[i][value] = 1
-
         output = {
             "input_ids": torch.LongTensor(padded_input_ids),
             "attention_mask": torch.LongTensor(padded_attention_mask),
-            "target_and_negatives_mask": target_and_negatives_mask,
             "subtokens_mask": torch.LongTensor(padded_subtokens_mask),
         }
         if self.with_labels:

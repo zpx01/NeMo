@@ -95,10 +95,6 @@ class HeteronymClassificationModel(NLPModel):
             token_type_ids=torch.zeros_like(batch["input_ids"]),
         )
 
-        if self.use_negative_target_mask:
-            # apply mask to mask out irrelevant options (elementwise)
-            logits = logits * batch["target_and_negatives_mask"].unsqueeze(1)
-
         if "targets" in batch:
             loss = self.loss(logits=logits, labels=batch["targets"])
         else:
@@ -268,15 +264,11 @@ class HeteronymClassificationModel(NLPModel):
             )
 
             for batch in infer_datalayer:
-                input_ids, attention_mask, target_and_negatives_mask, subword_mask = batch
-
-                # form batch as a dict to use self.make_step easily
+                input_ids, attention_mask, subword_mask = batch
                 batch = {
                     "input_ids": input_ids.to(device),
                     "attention_mask": attention_mask.to(device),
-                    "target_and_negatives_mask": target_and_negatives_mask.to(device),
                 }
-
                 _, logits = self.make_step(batch)
 
                 preds = torch.argmax(logits, axis=-1)[subword_mask > 0]
@@ -316,12 +308,8 @@ class HeteronymClassificationModel(NLPModel):
             )
 
             for batch in tqdm(infer_datalayer):
-                input_ids, attention_mask, target_and_negatives_mask, subword_mask = batch
-                logits = self.forward(
-                    input_ids=input_ids.to(device),
-                    attention_mask=attention_mask.to(device),
-                    target_and_negatives_mask=target_and_negatives_mask.to(device),
-                )
+                input_ids, attention_mask, subword_mask = batch
+                logits = self.forward(input_ids=input_ids.to(device), attention_mask=attention_mask.to(device),)
 
                 preds = torch.argmax(logits, axis=-1)[subword_mask > 0]
                 preds = tensor2list(preds)
