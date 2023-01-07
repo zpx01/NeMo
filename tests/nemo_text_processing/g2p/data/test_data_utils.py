@@ -13,7 +13,11 @@
 # limitations under the License.
 
 import pytest
-from nemo_text_processing.g2p.data.data_utils import any_locale_word_tokenize, english_word_tokenize, get_homograph_spans
+from nemo_text_processing.g2p.data.data_utils import (
+    any_locale_word_tokenize,
+    english_word_tokenize,
+    get_homograph_spans,
+)
 
 
 class TestDataUtils:

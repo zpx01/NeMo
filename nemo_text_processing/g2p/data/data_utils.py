@@ -18,7 +18,7 @@ import re
 import string
 import unicodedata
 from builtins import str as unicode
-from typing import List, Tuple, Union, Dict
+from typing import Dict, List, Tuple, Union
 
 __all__ = [
     "read_wordids",

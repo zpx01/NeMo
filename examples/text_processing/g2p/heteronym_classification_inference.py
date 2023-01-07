@@ -106,12 +106,15 @@ def main(cfg):
                 "I live in California. I read a book. Only people who have already gained something are willing to protest, because they see scholarship and contemporary art as a resource for personal emancipation, and have a personal stake in taking it over.",
                 "Yesterday, I read a book.",
                 "no homographs",
-                "He read a book last night.",
+                "He reads a book.",
             ],
             batch_size=cfg.batch_size,
             num_workers=cfg.num_workers,
         )
 
+        import pdb
+
+        pdb.set_trace()
         print()
         # preds = model.disambiguate_manifest(
         #     manifest=cfg.manifest,

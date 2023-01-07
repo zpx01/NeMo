@@ -19,12 +19,12 @@ import re
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Callable, DefaultDict, List, Optional, Tuple, Union, Set
+from typing import Callable, DefaultDict, List, Optional, Set, Tuple, Union
 
 import nltk
 import torch
-
 from nemo_text_processing.g2p.data.data_utils import any_locale_word_tokenize, english_word_tokenize
+
 from nemo.collections.common.tokenizers.text_to_speech.ipa_lexicon import validate_locale
 from nemo.utils import logging
 from nemo.utils.decorators import experimental

@@ -139,11 +139,10 @@ class HeteronymClassificationDataset(Dataset):
 
         heteronym_span_idx = 0
         # split sentence by space and keep track of word boundaries
-        # we assume a heteronym is a standalone word
+        # we assume heteronym is a standalone word
         matches = [(m.group(0), (m.start(), m.end() - 1)) for m in re.finditer(r'\S+', sentence)]
         for match in matches:
             word, word_start_end = match
-
             # check if the start of the next heteronym span is within the word indices
             if (
                 heteronym_span_idx < len(start_end)
@@ -159,7 +158,7 @@ class HeteronymClassificationDataset(Dataset):
                     prefix_ids = self.tokenizer.text_to_ids(prefix)
                     subtokens_mask.extend([self.PAD_TOKEN] * len(prefix_ids))
 
-                word = word[word.index(prefix) + len(prefix_ids) :]
+                word = word[word.index(prefix) + len(prefix) :]
                 word_input_ids = self.tokenizer.text_to_ids(word)
                 input_ids.extend(prefix_ids + word_input_ids)
 
@@ -201,7 +200,6 @@ class HeteronymClassificationDataset(Dataset):
         output = [input_ids, target_and_negatives, subtokens_mask]
         if self.with_labels:
             output.append(target_word_ids)
-
         return output  # [input_ids, target_and_negatives, subtokens_mask, [Optional] target]
 
     def __len__(self):
@@ -260,13 +258,12 @@ class HeteronymClassificationDataset(Dataset):
             for value in cur_target_and_negatives:
                 target_and_negatives_mask[i][value] = 1
 
-        output = [
-            torch.LongTensor(padded_input_ids),
-            torch.LongTensor(padded_attention_mask),
-            target_and_negatives_mask,
-            torch.LongTensor(padded_subtokens_mask),
-        ]
-
+        output = {
+            "input_ids": torch.LongTensor(padded_input_ids),
+            "attention_mask": torch.LongTensor(padded_attention_mask),
+            "target_and_negatives_mask": target_and_negatives_mask,
+            "subtokens_mask": torch.LongTensor(padded_subtokens_mask),
+        }
         if self.with_labels:
-            output.append(torch.LongTensor(padded_targets))
+            output["targets"] = torch.LongTensor(padded_targets)
         return output

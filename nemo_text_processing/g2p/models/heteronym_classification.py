@@ -55,6 +55,9 @@ class HeteronymClassificationModel(NLPModel):
         self.supported_heteronyms = [h for h in self.homograph_dict.keys()]
         super().__init__(cfg=cfg, trainer=trainer)
 
+        self.lang = self._cfg.get('lang', None)
+        self.use_negative_target_mask = False  # self._cfg.use_negative_target_mask
+
         num_classes = len(self.wordid_to_idx)
         self.classifier = TokenClassifier(
             hidden_size=self.hidden_size,
@@ -74,9 +77,6 @@ class HeteronymClassificationModel(NLPModel):
             num_classes=num_classes, mode='macro', dist_sync_on_step=True, label_ids=self.wordid_to_idx
         )
 
-        # Language
-        self.lang = cfg.get('lang', None)
-
         # @typecheck()
 
     def forward(self, input_ids, attention_mask, token_type_ids):
@@ -94,8 +94,10 @@ class HeteronymClassificationModel(NLPModel):
             attention_mask=batch["attention_mask"],
             token_type_ids=torch.zeros_like(batch["input_ids"]),
         )
-        # apply mask to mask out irrelevant options (elementwise)
-        logits = logits * batch["target_and_negatives_mask"].unsqueeze(1)
+
+        if self.use_negative_target_mask:
+            # apply mask to mask out irrelevant options (elementwise)
+            logits = logits * batch["target_and_negatives_mask"].unsqueeze(1)
 
         if "targets" in batch:
             loss = self.loss(logits=logits, labels=batch["targets"])
@@ -223,7 +225,9 @@ class HeteronymClassificationModel(NLPModel):
             last_idx = 0
             for homograph_idx, cur_start_end in enumerate(sent_start_end):
                 cur_start, cur_end = cur_start_end
-                sent_with_homograph_replaced += sentences[sent_idx][last_idx:cur_start] + wordid_to_phonemes[preds[sent_idx][homograph_idx]]
+                sent_with_homograph_replaced += (
+                    sentences[sent_idx][last_idx:cur_start] + wordid_to_phonemes[preds[sent_idx][homograph_idx]]
+                )
                 last_idx = cur_end
             if last_idx < len(sentences[sent_idx]):
                 sent_with_homograph_replaced += sentences[sent_idx][last_idx:]
