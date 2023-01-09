@@ -48,6 +48,9 @@ class TranscriptionConfig:
     manifest: str  # Path to .json manifest
     grapheme_field: str = "text_graphemes"  # name of the field in .json manifest for input grapheme text
 
+    # mapping from wordid predicted by the model to phonemes
+    wordid_to_phonemes_file: Optional[str] = "../../../scripts/tts_dataset_files/wordid_to_nemo_cmu-0.7b_nv22.10.tsv"
+
     # if "word_id" targets are present in the manifest, evaluation will be performed and errors will be saved in errors_file
     errors_file: Optional[str] = None  # path to a file to save prediction errors
     batch_size: int = 32
@@ -100,7 +103,6 @@ def main(cfg):
     #     raise ValueError(f"{cfg.manifest} is not found")
 
     with torch.no_grad():
-        # # TODO add s forms handling with this model
         preds, sentences = model.disambiguate(
             sentences=[
                 "I live in California. I read a book. Only people who have already gained something are willing to protest, because they see scholarship and contemporary art as a resource for personal emancipation, and have a personal stake in taking it over.",
@@ -110,6 +112,7 @@ def main(cfg):
             ],
             batch_size=cfg.batch_size,
             num_workers=cfg.num_workers,
+            wordid_to_phonemes_file=cfg.wordid_to_phonemes_file,
         )
 
         import pdb

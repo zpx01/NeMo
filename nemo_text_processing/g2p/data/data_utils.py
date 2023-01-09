@@ -14,6 +14,7 @@
 
 
 import csv
+import os
 import re
 import string
 import unicodedata
@@ -72,6 +73,9 @@ def read_wordids(wordid_map: str):
         homograph_dict: a dictionary of graphemes with corresponding word_id - ipa_form pairs
         wordid_to_idx: word id to label id mapping
     """
+    if not os.path.exists(wordid_map):
+        raise ValueError(f"{wordid_map} not found")
+
     homograph_dict = {}
     wordid_to_idx = {}
 
@@ -92,11 +96,16 @@ def read_wordids(wordid_map: str):
     return homograph_dict, wordid_to_idx
 
 
-def get_wordid_to_phonemes(wordid_to_phonemes_file: str = "../../../scripts/tts_dataset_files/wordid_to_nemo_cmu.tsv"):
+def get_wordid_to_phonemes(
+    wordid_to_phonemes_file: str = "../../../scripts/tts_dataset_files/wordid_to_nemo_cmu-0.7b_nv22.10.tsv",
+):
     """
     WikiHomograph and NeMo use slightly different phoneme sets, this function reads WikiHomograph word_ids to NeMo
     IPA heteronyms mapping
     """
+    if not os.path.exists(wordid_to_phonemes_file):
+        raise ValueError(f"{wordid_to_phonemes_file} not found")
+
     wordid_to_nemo_cmu = {}
     with open(wordid_to_phonemes_file, "r", encoding="utf-8") as f:
         for i, line in enumerate(f):

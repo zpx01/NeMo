@@ -77,7 +77,7 @@ class HeteronymClassificationModel(NLPModel):
             num_classes=num_classes, mode='macro', dist_sync_on_step=True, label_ids=self.wordid_to_idx
         )
 
-        # @typecheck()
+        self.wordid_to_phonemes_file = None
 
     def forward(self, input_ids, attention_mask, token_type_ids):
         hidden_states = self.bert_model(
@@ -187,7 +187,7 @@ class HeteronymClassificationModel(NLPModel):
     def disambiguate(
         self,
         sentences: List[str],
-        batch_size: int,
+        batch_size: int = 4,
         num_workers: int = 0,
         wordid_to_phonemes_file: Optional[str] = None,
     ):
@@ -195,7 +195,7 @@ class HeteronymClassificationModel(NLPModel):
         Replaces homographs, supported by the model, with the phoneme form.
 
         Args:
-            wordid_to_phonemes_file: (Optional) file with mapping between wordid and phoneme
+            wordid_to_phonemes_file: (Optional) file with mapping between wordid predicted by the model to phonemes
 
         Returns:
             preds: model predictions
@@ -203,6 +203,7 @@ class HeteronymClassificationModel(NLPModel):
         """
         if isinstance(sentences, str):
             sentences = [sentences]
+        batch_size = min(batch_size, len(sentences))
 
         start_end, homographs = get_homograph_spans(sentences, self.homograph_dict)
         preds = self._disambiguate(
@@ -213,7 +214,11 @@ class HeteronymClassificationModel(NLPModel):
             num_workers=num_workers,
         )
 
-        wordid_to_phonemes = get_wordid_to_phonemes()
+        if wordid_to_phonemes_file is not None:
+            self.wordid_to_phonemes_file = wordid_to_phonemes_file
+
+        if self.wordid_to_phonemes_file is not None:
+            wordid_to_phonemes = get_wordid_to_phonemes(self.wordid_to_phonemes_file)
 
         output = []
         for sent_idx, sent_start_end in enumerate(start_end):
@@ -221,9 +226,16 @@ class HeteronymClassificationModel(NLPModel):
             last_idx = 0
             for homograph_idx, cur_start_end in enumerate(sent_start_end):
                 cur_start, cur_end = cur_start_end
-                sent_with_homograph_replaced += (
-                    sentences[sent_idx][last_idx:cur_start] + wordid_to_phonemes[preds[sent_idx][homograph_idx]]
-                )
+                cur_pred = preds[sent_idx][homograph_idx]
+
+                if self.wordid_to_phonemes_file is None:
+                    cur_pred = f"[{cur_pred}]"
+                else:
+                    cur_pred = wordid_to_phonemes[cur_pred]
+                    # to use mixed grapheme format as an input for a TTS model, we need to have vertical bars around phonemes
+                    cur_pred = "".join([f"|{p}|" for p in cur_pred])
+
+                sent_with_homograph_replaced += sentences[sent_idx][last_idx:cur_start] + cur_pred
                 last_idx = cur_end
             if last_idx < len(sentences[sent_idx]):
                 sent_with_homograph_replaced += sentences[sent_idx][last_idx:]
@@ -264,14 +276,14 @@ class HeteronymClassificationModel(NLPModel):
             )
 
             for batch in infer_datalayer:
-                input_ids, attention_mask, subword_mask = batch
+                subtokens_mask = batch["subtokens_mask"]
                 batch = {
-                    "input_ids": input_ids.to(device),
-                    "attention_mask": attention_mask.to(device),
+                    "input_ids": batch["input_ids"].to(device),
+                    "attention_mask": batch["attention_mask"].to(device),
                 }
                 _, logits = self.make_step(batch)
 
-                preds = torch.argmax(logits, axis=-1)[subword_mask > 0]
+                preds = torch.argmax(logits, axis=-1)[subtokens_mask > 0]
                 preds = tensor2list(preds)
                 all_preds.extend(preds)
         finally:

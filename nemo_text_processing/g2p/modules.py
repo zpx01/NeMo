@@ -272,10 +272,8 @@ class IPAG2P(BaseG2p):
         phoneme_probability: Optional[float] = None,
         use_stresses: Optional[bool] = True,
         set_graphemes_upper: Optional[bool] = True,
-        pretrained_g2p_model: Optional[str] = None,
         mapping_file: Optional[str] = None,
     ) -> None:
-
         """Generic IPA G2P module. This module converts words from grapheme to International Phonetic Alphabet representations.
         Optionally, it can ignore heteronyms, ambiguous words, or words marked as unchangeable by word_tokenize_func (see code for details).
         Ignored words are left unchanged or passed through apply_to_oov_word for handling.
@@ -305,7 +303,6 @@ class IPAG2P(BaseG2p):
         self.set_graphemes_upper = set_graphemes_upper
         self.phoneme_probability = phoneme_probability
         self._rng = random.Random()
-        self.pretrained_g2p_model = pretrained_g2p_model
 
         if locale is not None:
             validate_locale(locale)
@@ -359,6 +356,8 @@ class IPAG2P(BaseG2p):
         if set_graphemes_upper and heteronyms:
             self.heteronyms = [het.upper() for het in self.heteronyms]
 
+        self.heteronym_model = None  # heteronym classification model to use during inference
+
     @staticmethod
     def _parse_phoneme_dict(phoneme_dict: Union[str, pathlib.Path]):
         # parse the dictionary, update it, and generate symbol set.
@@ -380,6 +379,16 @@ class IPAG2P(BaseG2p):
             phoneme_dict_obj = phoneme_dict
         return phoneme_dict_obj
 
+    def setup_heteronym_model(
+        self,
+        heteronym_model,
+        wordid_to_phonemes_file: Optional[
+            str
+        ] = "../../../scripts/tts_dataset_files/wordid_to_nemo_cmu-0.7b_nv22.10.tsv",
+    ):
+        self.heteronym_model = heteronym_model
+        self.heteronym_model.wordid_to_phonemes_file = wordid_to_phonemes_file
+
     def replace_dict(self, phoneme_dict: Union[str, pathlib.Path]):
         """
         Replace model's phoneme dictionary with a custom one
@@ -390,12 +399,6 @@ class IPAG2P(BaseG2p):
     def _parse_file_by_lines(p: Union[str, pathlib.Path]) -> List[str]:
         with open(p, 'r') as f:
             return [l.rstrip() for l in f.readlines()]
-
-    # def set_pretrained_g2p_model(
-    #     self, g2p_model, wordid_to_nemo_ipa_file="NeMo/scripts/tts_dataset_files/wordid_to_nemo_cmu.tsv"
-    # ):
-    #     self.pretrained_g2p_model = g2p_model
-    #     self.wordid_to_nemo_cmu = get_wordid_to_phonemes(wordid_to_nemo_ipa_file)
 
     def _normalize_dict(self, phoneme_dict_obj: dict) -> Tuple[DefaultDict[str, List[List[str]]], Set]:
         """
@@ -451,9 +454,6 @@ class IPAG2P(BaseG2p):
     def is_unique_in_phoneme_dict(self, word: str) -> bool:
         return len(self.phoneme_dict[word]) == 1
 
-    # <<<<<<< HEAD
-    #     def parse_one_word(self, word: str, text: Optional[str] = None, start_end: Optional[Tuple[int, int]] = None):
-    # =======
     def parse_one_word(self, word: str) -> Tuple[List[str], bool]:
         """Returns parsed `word` and `status` (bool: False if word wasn't handled, True otherwise).
         """
@@ -469,18 +469,6 @@ class IPAG2P(BaseG2p):
 
         # Heteronyms
         if self.heteronyms and word in self.heteronyms:
-            # <<<<<<< HEAD
-            #             if self.pretrained_g2p_model and text and start_end:
-            #                 try:
-            #                     heteronym_word_id = self.pretrained_g2p_model.disambiguate(
-            #                         text, [start_end], [word.lower()], batch_size=1
-            #                     )[0]
-            #                     heteronym_ipa = self.wordid_to_nemo_cmu[heteronym_word_id]
-            #                     return [x for x in heteronym_ipa], True
-            #                 except Exception as e:
-            #                     return word, True
-            #             return word, True
-            # =======
             return list(word), True
 
         # `'s` suffix (with apostrophe) - not in phoneme dict
@@ -524,8 +512,13 @@ class IPAG2P(BaseG2p):
             return list(word), False
 
     def __call__(self, text: str) -> List[str]:
-        words = self.word_tokenize_func(text)
+        if self.heteronym_model is not None:
+            try:
+                text = self.heteronym_model.disambiguate(sentences=[text])[1][0]
+            except:
+                logging.warning(f"Heteronym model failed, skipping")
 
+        words = self.word_tokenize_func(text)
         prons = []
         for word, without_changes in words:
             if without_changes:
@@ -545,8 +538,10 @@ class IPAG2P(BaseG2p):
                 pron.pop()
 
             prons.extend(pron)
+        import pdb
 
-        return
+        pdb.set_trace()
+        return prons
 
 
 class ChineseG2p(BaseG2p):

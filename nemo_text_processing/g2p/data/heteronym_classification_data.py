@@ -249,9 +249,9 @@ class HeteronymClassificationDataset(Dataset):
                     padded_targets.append(item["target"])
 
         output = {
-            "input_ids": torch.LongTensor(padded_input_ids),
-            "attention_mask": torch.LongTensor(padded_attention_mask),
-            "subtokens_mask": torch.LongTensor(padded_subtokens_mask),
+            "input_ids": torch.LongTensor(np.array(padded_input_ids)),
+            "attention_mask": torch.LongTensor(np.array(padded_attention_mask)),
+            "subtokens_mask": torch.LongTensor(np.array(padded_subtokens_mask)),
         }
         if self.with_labels:
             output["targets"] = torch.LongTensor(padded_targets)
