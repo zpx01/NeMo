@@ -538,9 +538,6 @@ class IPAG2P(BaseG2p):
                 pron.pop()
 
             prons.extend(pron)
-        import pdb
-
-        pdb.set_trace()
         return prons
 
 
