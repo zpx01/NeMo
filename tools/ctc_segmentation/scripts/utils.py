@@ -284,7 +284,6 @@ def write_output(
             if isinstance(segment, list):
                 for j, x in enumerate(segment):
                     start, end, score = x
-                    score = -0.2
                     outfile.write(
                         f"{start} {end} {score} | {text[i][j]} | {text_no_preprocessing[i][j]} | {text_normalized[i][j]}\n"
                     )

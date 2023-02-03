@@ -15,6 +15,7 @@
 # limitations under the License.
 
 # default values for optional arguments
+USE_CTC_SEGMENTATION='False' # set to False to use NeMo Forces Aligner (NFA)
 MIN_SCORE=-2
 CUT_PREFIX=0
 SCRIPTS_DIR="scripts" # /<PATH TO>/NeMo/tools/ctc_segmentation/tools/scripts/ directory
@@ -27,7 +28,7 @@ NUM_JOBS=-2 # The maximum number of concurrently running jobs, `-2` - all CPUs b
 SAMPLE_RATE=16000 # Target sample rate (default for ASR data - 16000 Hz)
 MAX_DURATION=20 # Maximum audio segment duration, in seconds. Samples that are longer will be dropped.
 DATA_DIR="/mnt/sdb/DATA/segmentation/audio_samples/en"
-OUTPUT_DIR="/mnt/sdb/DATA/segmentation/audio_samples/en_ctc_segm_output"
+OUTPUT_DIR="/mnt/sdb/DATA/segmentation/audio_samples/nfa_output"
 MODEL_NAME_OR_PATH="stt_en_citrinet_1024_gamma_0_25"
 
 for ARG in "$@"
@@ -54,6 +55,7 @@ echo "MAX_SEGMENT_LEN = $MAX_SEGMENT_LEN"
 echo "SAMPLE_RATE = $SAMPLE_RATE"
 echo "ADDITIONAL_SPLIT_SYMBOLS = $ADDITIONAL_SPLIT_SYMBOLS"
 echo "USE_NEMO_NORMALIZATION = $USE_NEMO_NORMALIZATION"
+echo "USE_CTC_SEGMENTATION = $USE_CTC_SEGMENTATION"
 
 #if [[ -z $MODEL_NAME_OR_PATH ]] || [[ -z $DATA_DIR ]] || [[ -z $OUTPUT_DIR ]]; then
 #  echo "Usage: $(basename "$0")
@@ -92,25 +94,50 @@ python $SCRIPTS_DIR/prepare_data.py \
 --sample_rate=$SAMPLE_RATE \
 --additional_split_symbols=$ADDITIONAL_SPLIT_SYMBOLS $NEMO_NORMALIZATION || exit
 
-# STEP #2
-# Run CTC-segmentation. One might want to perform alignment with various window sizes
-# Note, if the alignment with the initial window size isn't found, the window size will be double to re-attempt alignment
-echo "SEGMENTATION STEP..."
-for WINDOW in 8000 12000
-do
-  python $SCRIPTS_DIR/run_ctc_segmentation.py \
-  --output_dir=$OUTPUT_DIR \
-  --data=$OUTPUT_DIR/processed \
-  --sample_rate=$SAMPLE_RATE \
-  --model=$MODEL_NAME_OR_PATH  \
-  --window_len $WINDOW || exit
-done
 
-# STEP #3 (Optional)
-# Verify aligned segments only if multiple WINDOWs used in the Step #2)
-echo "VERIFYING SEGMENTS..."
-python $SCRIPTS_DIR/verify_segments.py \
---base_dir=$OUTPUT_DIR  || exit
+if [[ ${USE_CTC_SEGMENTATION,,} == "true" ]]; then
+  # STEP #2
+  # Run CTC-segmentation. One might want to perform alignment with various window sizes
+  # Note, if the alignment with the initial window size isn't found, the window size will be double to re-attempt alignment
+  echo "SEGMENTATION STEP with CTC-Segmentation..."
+  for WINDOW in 8000 12000
+  do
+    python $SCRIPTS_DIR/run_ctc_segmentation.py \
+    --output_dir=$OUTPUT_DIR \
+    --data=$OUTPUT_DIR/processed \
+    --sample_rate=$SAMPLE_RATE \
+    --model=$MODEL_NAME_OR_PATH  \
+    --window_len $WINDOW || exit
+  done
+
+  # STEP #3 (Optional)
+  # Verify aligned segments only if multiple WINDOWs used in the Step #2)
+  echo "VERIFYING SEGMENTS..."
+  python $SCRIPTS_DIR/verify_segments.py --base_dir=$OUTPUT_DIR  || exit
+  ALIGNMENT_DIR=$OUTPUT_DIR/verified_segments
+else
+  echo "PREPARE DATA FOR NFA..."
+  MANIFEST=${OUTPUT_DIR}/manifest.json
+  NFA_MANIFEST=${OUTPUT_DIR}/manifest_with_ctm_paths.json
+  ALIGNMENT_DIR=${OUTPUT_DIR}/segments
+
+  python $SCRIPTS_DIR/convert_to_nfa_format.py \
+    --processed_data=$OUTPUT_DIR/processed \
+    --out_manifest=$MANIFEST
+
+  echo "SEGMENTATION STEP with NFA..."
+  python $SCRIPTS_DIR/../../nemo_forced_aligner/align.py \
+    pretrained_name=$MODEL_NAME_OR_PATH \
+    model_downsample_factor=8 \
+    manifest_filepath=$MANIFEST \
+    output_dir=$OUTPUT_DIR \
+    additional_ctm_grouping_separator="|"
+
+  python $SCRIPTS_DIR/convert_nfa_output_ctc_format.py \
+    --nfa_manifest=$NFA_MANIFEST \
+    --output_dir=$ALIGNMENT_DIR
+
+fi
 
 # STEP #4
 # Cut the original audio files based on the alignment score. Only segments with alignment confidence score
@@ -118,7 +145,7 @@ python $SCRIPTS_DIR/verify_segments.py \
 echo "CUTTING AUDIO..."
 python $SCRIPTS_DIR/cut_audio.py \
 --output_dir=$OUTPUT_DIR \
---alignment=$OUTPUT_DIR/verified_segments \
+--alignment=$ALIGNMENT_DIR \
 --threshold=$MIN_SCORE \
 --offset=$OFFSET \
 --sample_rate=$SAMPLE_RATE \
