@@ -25,7 +25,7 @@ class RotaryEmbedding(nn.Module):
     Implements Rotary Position Embedding from https://arxiv.org/abs/2104.09864.
     """
 
-    def __init__(self, dim: int, seq_len_interpolation_factor: int = None):
+    def __init__(self, dim: int, seq_len_interpolation_factor: int = None, enforce_fp32_pos_idx: bool = False):
         """
         Args:
 
@@ -37,13 +37,20 @@ class RotaryEmbedding(nn.Module):
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
         inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer('inv_freq', inv_freq)
+        self.enforce_fp32_pos_idx = enforce_fp32_pos_idx
 
     def forward(self, max_seq_len, offset=0):
-        seq = torch.arange(max_seq_len, device=self.inv_freq.device) + offset
+        if self.enforce_fp32_pos_idx:
+            seq = torch.arange(max_seq_len, device=self.inv_freq.device, dtype=torch.float32) + offset
+        else:
+            seq = torch.arange(max_seq_len, device=self.inv_freq.device, dtype=self.inv_freq.dtype) + offset
+
         if self.seq_len_interpolation_factor is not None:
-            seq = seq.type_as(self.inv_freq)
+            # seq = seq.type_as(self.inv_freq)
             seq *= 1 / self.seq_len_interpolation_factor
-        freqs = einsum('i , j -> i j', seq.type_as(self.inv_freq), self.inv_freq)
+
+        # freqs = einsum('i , j -> i j', seq.type_as(self.inv_freq), self.inv_freq)
+        freqs = torch.outer(seq, self.inv_freq)
         # first part even vector components, second part odd vector components,
         #  2 * dim in dimension size
         emb = torch.cat((freqs, freqs), dim=-1)
@@ -72,5 +79,8 @@ def apply_rotary_pos_emb(t, freqs):
     t, t_pass = t[..., :rot_dim], t[..., rot_dim:]
     # first part is cosine component
     # second part is sine component, need to change signs with _rotate_half method
-    t = (t * freqs.cos()) + (_rotate_half(t) * freqs.sin())
+    cos_ = torch.cos(freqs).to(t.dtype)
+    sin_ = torch.sin(freqs).to(t.dtype)
+    
+    t = (t * cos_) + (_rotate_half(t) * sin_)
     return torch.cat((t, t_pass), dim=-1)

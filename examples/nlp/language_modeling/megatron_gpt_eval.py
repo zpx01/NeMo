@@ -218,7 +218,10 @@ def main(cfg) -> None:
             except:
                 pretrained_cfg["use_flash_attention"] = True
             pretrained_cfg.apply_query_key_layer_scaling = False
-        model = MegatronGPTModel.restore_from(
+            if cfg.enforce_fp32_pos_idx:
+                pretrained_cfg.enforce_fp32_pos_idx = cfg.enforce_fp32_pos_idx
+
+            model = MegatronGPTModel.restore_from(
             restore_path=cfg.gpt_model_file,
             trainer=trainer,
             override_config_path=pretrained_cfg,
@@ -276,57 +279,41 @@ def main(cfg) -> None:
         "end_strings": cfg.inference.end_strings,
     }
 
-    fp8_enabled = hasattr(model.cfg, "fp8") and (model.cfg.fp8 == True)
-    if fp8_enabled:
-        nb_paddings = 0
-        while len(cfg.prompts) % 8 != 0:
-            cfg.prompts.append("")
-            nb_paddings += 1
-
-    # read json file
-    import json
-    output_file = cfg.inference.output_file
-    with open(cfg.inference.input_file) as f:
-        cfg.prompts = []
-        lines = []
-        for line in f:
-            line = json.loads(line)
-            lines.append(line["truncated_input"])
-    # # First method of running text generation, call model.generate method
-    # response = model.generate(
-    #     inputs=OmegaConf.to_container(cfg.prompts), length_params=length_params, sampling_params=sampling_params
-    # )
+    
+    response = model.generate(
+        inputs=OmegaConf.to_container(cfg.prompts), length_params=length_params, sampling_params=sampling_params
+    )
 
     # if fp8_enabled:
     #     response = remove_padded_prompts(response, nb_paddings)
-    # print("***************************")
-    # print(response)
-    # print("***************************")
-
-    # Second method of running text generation, call trainer.predict [recommended]
-    bs = cfg.inference.batch_size #8 if fp8_enabled else 2
-    ds = RequestDataSet(lines)
-    request_dl = DataLoader(dataset=ds, batch_size=bs)
-    config = OmegaConf.to_container(cfg.inference)
-    model.set_inference_config(config)
-    response = trainer.predict(model, request_dl)
-
-    if fp8_enabled:
-        response[-1] = remove_padded_prompts(response[-1], nb_paddings)
-
-    if model.global_rank == 0:
-        print("***************************")
-        if output_file is not None:
-            with open(output_file, "w", encoding="utf-8") as f:
-                for batch in response:
-                    batch_sentences = [s for s in batch['sentences']]
-                    for s in batch_sentences:
-                        d = {'sentence': s}
-                        f.write(json.dumps(d) + '\n')
-            print("predictions saved to {}".format(output_file))
-        else:
-            print(response)
     print("***************************")
+    print(response)
+    print("***************************")
+
+    # # Second method of running text generation, call trainer.predict [recommended]
+    # bs = cfg.inference.batch_size #8 if fp8_enabled else 2
+    # ds = RequestDataSet(lines)
+    # request_dl = DataLoader(dataset=ds, batch_size=bs)
+    # config = OmegaConf.to_container(cfg.inference)
+    # model.set_inference_config(config)
+    # response = trainer.predict(model, request_dl)
+
+    # if fp8_enabled:
+    #     response[-1] = remove_padded_prompts(response[-1], nb_paddings)
+
+    # if model.global_rank == 0:
+    #     print("***************************")
+    #     if output_file is not None:
+    #         with open(output_file, "w", encoding="utf-8") as f:
+    #             for batch in response:
+    #                 batch_sentences = [s for s in batch['sentences']]
+    #                 for s in batch_sentences:
+    #                     d = {'sentence': s}
+    #                     f.write(json.dumps(d) + '\n')
+    #         print("predictions saved to {}".format(output_file))
+    #     else:
+    #         print(response)
+    # print("***************************")
 
     # print("***************************")
     # print(response)
