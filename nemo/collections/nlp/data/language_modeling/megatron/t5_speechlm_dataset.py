@@ -630,6 +630,7 @@ class T5SpeechLMDataset(BasePromptLearningDataset):
             position_ids,
             data_dict['taskname_id'],
             data_dict['speech_mask'],
+            data_dict['context_and_question_tokens_lens'],
         )
 
     def pad_batch_and_build_loss_mask(self, batch):
@@ -753,6 +754,7 @@ class T5SpeechLMDataset(BasePromptLearningDataset):
             "dec_labels": torch.stack(dec_labels_list) if len(dec_labels_list) > 0 else None,
             "dec_labels_mask": torch.stack(dec_labels_mask_list) if len(dec_labels_mask_list) > 0 else None,
             "speech_mask": torch.stack(speech_mask_list) if len(speech_mask_list) > 0 else None,
+            "context_and_question_tokens_lens": context_and_question_tokens_len,
         }
 
         return data_dict

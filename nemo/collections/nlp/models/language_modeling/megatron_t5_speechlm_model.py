@@ -20,6 +20,7 @@ import numpy as np
 import soundfile as sf
 import torch
 from encodec import EncodecModel
+from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from omegaconf.omegaconf import open_dict
@@ -163,6 +164,8 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
 
         self.additional_models = {'encodec': encodec_model}
 
+        self.spec_augment = instantiate(cfg.get('spec_augment', None))
+
     def first_stage_of_pipeline(self):
         if self.frozen_model.enc_dec_model.pre_process and parallel_state.get_pipeline_model_parallel_rank() == 0:
             return True
@@ -172,6 +175,7 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
         self,
         virtual_tokens,
         context_and_question_tokens,
+        context_and_question_tokens_lens,
         enc_mask,
         dec_input,
         dec_mask,
@@ -191,6 +195,10 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
             input_embeds = self.get_embeddings_and_combine(
                 [virtual_tokens, context_and_question_tokens], taskname_ids, inference
             )
+            if self.spec_augment is not None and not inference and torch.count_nonzero(speech_mask) == 0:
+                if torch.rand(1) < 0.7:
+                    t_len = context_and_question_tokens_lens - 5
+                    input_embeds[:, 3:-5, :] = self.spec_augment(input_spec=input_embeds[:, 3:-5, :].permute(0, 2, 1), length=t_len).permute(0, 2, 1)
             # TODO: This check needs to be revisited with PP support.
             if hasattr(self.frozen_model.enc_dec_model.encoder_embedding, 'position_embeddings'):
                 position_embeddings = self.frozen_model.enc_dec_model.encoder_embedding.position_embeddings(
@@ -340,11 +348,13 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
                 position_ids,
                 taskname_ids,
                 speech_mask,
+                context_and_question_tokens_lens
             ) = batch
 
             output_tensor, encoder_input, out_logits = model(
                 virtual_tokens,
                 context_and_question_tokens,
+                context_and_question_tokens_lens,
                 enc_mask,
                 dec_input,
                 dec_input_mask,
@@ -547,6 +557,7 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
             position_ids,
             taskname_ids,
             speech_mask,
+            context_and_question_tokens_lens,
         ) = batch
 
         # loss_mask (b, t)
@@ -564,6 +575,7 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
         output_loss, encoder_input, output_logits = self.forward(
             virtual_tokens,
             context_and_question_tokens,
+            context_and_question_tokens_lens,
             enc_mask,
             dec_input,
             dec_input_mask,
@@ -836,6 +848,7 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
                 position_ids,
                 taskname_ids,
                 speech_mask,
+                context_and_question_tokens_lens,
             ) = batch
             dec_input = dec_input_raw * 1  # (B, 8, T)
             dec_input_mask = dec_input_mask_raw * 1  # (B, T)
@@ -854,6 +867,7 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
                 output_logits, _, token_and_speech_logits = self.forward(
                     virtual_tokens,
                     context_and_question_tokens,
+                    context_and_question_tokens_lens,
                     enc_mask,
                     dec_input[:, :, : t + 1],  # Slice until the current timestep
                     dec_input_mask[:, : t + 1],
