@@ -3802,12 +3802,6 @@ assert_frame_equal(training_curve, gt_curve, rtol=1e-3, atol=1e-3)"'''
       }
     }
     stage('L2: Megatron GPT Finetuning StarCoder PP=1') {
-      when {
-        anyOf {
-          branch 'main'
-          changeRequest target: 'main'
-        }
-      }
       failFast true
       steps {
         sh "python examples/nlp/language_modeling/tuning/megatron_gpt_sft.py \
