@@ -25,13 +25,18 @@ class RotaryEmbedding(nn.Module):
     Implements Rotary Position Embedding from https://arxiv.org/abs/2104.09864.
     """
 
-    def __init__(self, dim: int, seq_len_interpolation_factor: int = None, enforce_fp32_pos_idx: bool = False):
+
+    def __init__(
+        self, dim: int, seq_len_interpolation_factor: int = None, pretrained_max_position_embeddings: int = None, enforce_fp32_pos_idx: bool = False
+    ):
+
         """
         Args:
 
             dim (int): rotary embedding dimension
             seq_len_interpolation_factor (int): if not None, discrete positions will be interpolated
             by this factor via the trick in https://arxiv.org/abs/2306.15595.
+            pretrained_max_position_embeddings (int): pre-trained max_position_embeddings before position interpolation.
         """
         super().__init__()
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
@@ -51,8 +56,6 @@ class RotaryEmbedding(nn.Module):
 
         # freqs = einsum('i , j -> i j', seq.type_as(self.inv_freq), self.inv_freq)
         freqs = torch.outer(seq, self.inv_freq)
-        # first part even vector components, second part odd vector components,
-        #  2 * dim in dimension size
         emb = torch.cat((freqs, freqs), dim=-1)
         # emb [seq_length, .., dim]
         return rearrange(emb, 'n d -> n 1 1 d')
