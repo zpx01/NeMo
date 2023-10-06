@@ -104,7 +104,6 @@ model:
     pin_memory: true
     speech_offset: 30000
     train_task: asr
-    sup_data_path: ???
 
   optim:
     name: fused_adam

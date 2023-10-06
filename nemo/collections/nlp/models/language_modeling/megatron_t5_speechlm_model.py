@@ -866,7 +866,6 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
             trim_hop_length=self.cfg.data.get('trim_hop_length', None),
             pad_multiple=self.cfg.data.get('pad_multiple', 1),
             pitch_augment=self.cfg.data.get('pitch_augment', None),
-            sup_data_path=self.cfg.data.get('sup_data_path', '/sup_data_path'),
             speech_offset=self.cfg.data.get('speech_offset', None),
             train_task=self.cfg.data.get('train_task', "tts"),
             seq_pattern=self.cfg.get('seq_pattern', 'delay_parallel'),

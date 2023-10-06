@@ -79,7 +79,6 @@ class T5SpeechLMTarredDataset(_TarredInstructionTuningDataset):
         trim_hop_length: Optional[int] = None,
         pad_multiple: int = 1,
         pitch_augment: bool = False,
-        sup_data_path: Optional[Union[Path, str]] = None,
         speech_offset: Optional[int] = None,
         train_task: Optional[str] = None,
         seq_pattern: Optional[str] = "parallel",
@@ -100,7 +99,6 @@ class T5SpeechLMTarredDataset(_TarredInstructionTuningDataset):
         trim_hop_length: Optional[int] = None, - speech parameter
         pad_multiple: int = 1, - speech parameter
         pitch_augment: bool = False, - speech parameter
-        sup_data_path: Optional[Union[Path, str]] = None, - Supplementary folder path where codecs are stored.
         speech_offset: Optional[int] = None, - if speech tokens then add this offset to the token indices to distinguish between text and speech tokens.
         **kwargs,
         """
@@ -128,19 +126,7 @@ class T5SpeechLMTarredDataset(_TarredInstructionTuningDataset):
         self.min_duration = kwargs.get('min_duration', 0.1)
         self.max_duration = kwargs.get('max_duration', 20)
 
-        # Initialize sup_data_path, sup_data_types and run preprocessing methods for every supplementary data type
-        if sup_data_path is not None:
-            Path(sup_data_path).mkdir(parents=True, exist_ok=True)
-            self.sup_data_path = sup_data_path
-
-        self.codec_folder = kwargs.pop('codec_folder', None)
         self.train_task = train_task
-        if self.codec_folder is None:
-            self.codec_folder = Path(self.sup_data_path) / "codec"
-        elif isinstance(self.codec_folder, str):
-            self.codec_folder = Path(self.codec_folder)
-
-        self.codec_folder.mkdir(exist_ok=True, parents=True)
 
         # Initialized super part
         self.tokenizer = tokenizer
