@@ -285,6 +285,7 @@ class T5SpeechLMTarredDataset(_TarredInstructionTuningDataset):
             question_tokens = pad_text_to_speech_dims(question_tokens, self.tokenizer.pad_id)
         if doc["context_type"] != "SPEECH" and doc["question_type"] == "SPEECH":
             context_tokens = pad_text_to_speech_dims(context_tokens, self.tokenizer.pad_id)
+        context_tokens = context_tokens.to(question_tokens.device)
         context_and_question_tokens = torch.cat([context_tokens, question_tokens], dim=1)
 
         # get answer ids
@@ -469,6 +470,7 @@ class T5SpeechLMTarredDataset(_TarredInstructionTuningDataset):
             if field == 'context':
                 self.ref_encodec = torch.load(io.BytesIO(self.ref_encodec)).long()
                 codec_codes = self.ref_encodec
+        codec_codes = codec_codes.cpu()
 
         codec_codes_length = torch.tensor(codec_codes.shape[1]).long()
 
