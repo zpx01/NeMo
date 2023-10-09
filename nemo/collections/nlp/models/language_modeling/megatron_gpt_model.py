@@ -325,6 +325,7 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                 'num_attention_heads', None
             ), "Group Query Attention is only supported in Megatron Core. Set 'mcore_gpt' to use GQA."
 
+            import pdb; pdb.set_trace()
             model = GPTModel(
                 config=self.model_parallel_config,
                 vocab_size=self.cfg.get('override_vocab_size', self.padded_vocab_size),
@@ -966,13 +967,7 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
         self.validation_step_outputs.append(loss) if mode == 'val' else self.test_step_outputs.append(loss)
         return loss
 
-<<<<<<< HEAD
-    def validation_epoch_end(self, outputs):
-        if len(outputs) == 0:
-            return
-=======
     def on_validation_epoch_end(self):
->>>>>>> main
         if parallel_state.is_pipeline_last_stage():
             # only the last pipeline parallel stages return loss with their batch size
             if self.cfg.data.get('validation_drop_last', True):

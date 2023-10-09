@@ -165,7 +165,6 @@ def remove_padded_prompts(response, nb_paddings):
 
 @hydra_runner(config_path="conf", config_name="megatron_gpt_inference")
 def main(cfg) -> None:
-
     # trainer required for restoring model parallel models
     trainer = Trainer(strategy=NLPDDPStrategy(), **cfg.trainer, callbacks=[CustomProgressBar()])
 
@@ -228,11 +227,11 @@ def main(cfg) -> None:
             except:
                 pretrained_cfg["use_flash_attention"] = True
             # pretrained_cfg.apply_query_key_layer_scaling = False
-            if cfg.enforce_fp32_pos_idx:
+            if cfg.get("enforce_fp32_pos_idx", False):
                 pretrained_cfg.enforce_fp32_pos_idx = cfg.enforce_fp32_pos_idx
-       
+            pretrained_cfg.apply_query_key_layer_scaling = False
+      
         model = MegatronGPTModel.restore_from(
-
             restore_path=cfg.gpt_model_file,
             trainer=trainer,
             override_config_path=pretrained_cfg,

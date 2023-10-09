@@ -460,4 +460,3 @@ class NLPModel(ModelPT, Exportable):
         return super().restore_from(
             restore_path, override_config_path, map_location, strict, return_config, save_restore_connector, trainer
         )
->>>>>>> main
