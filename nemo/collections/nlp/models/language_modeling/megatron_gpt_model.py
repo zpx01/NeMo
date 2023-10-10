@@ -325,7 +325,6 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                 'num_attention_heads', None
             ), "Group Query Attention is only supported in Megatron Core. Set 'mcore_gpt' to use GQA."
 
-            import pdb; pdb.set_trace()
             model = GPTModel(
                 config=self.model_parallel_config,
                 vocab_size=self.cfg.get('override_vocab_size', self.padded_vocab_size),
