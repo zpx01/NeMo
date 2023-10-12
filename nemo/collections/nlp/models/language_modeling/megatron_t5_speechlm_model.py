@@ -994,11 +994,12 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
             nemo_sv_model = nemo_sv_model.to(device)
             nemo_sv_model.eval()
 
-            asr_model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
-                model_name="stt_en_conformer_transducer_large"
-            )
-            asr_model = asr_model.to(device)
-            asr_model.eval()
+            if torch.count_nonzero(speech_mask) > 0:
+                asr_model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+                    model_name="stt_en_conformer_transducer_large"
+                )
+                asr_model = asr_model.to(device)
+                asr_model.eval()
             _exp_dir_path = self.logger.save_dir
             _exp_dir_path = _exp_dir_path + '/Sample_Audios'
             if not os.path.exists(_exp_dir_path):
@@ -1037,12 +1038,24 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
                     )
                 else:
                     r = labels[i, 0].long()
-                    nzm = r != 0
-                    r = r.tolist()[:-1]
-                    nzm = nzm[:-1]
-                    h = output_tokens_combined[i].long() * nzm
-                    h = h.tolist()
-                    cur_wer_score = editdistance.eval(r, h)
+                    nz_index = r.nonzero()
+                    r = r[nz_index]
+                    r = r.tolist()
+                    r_list = []
+                    for rr in r:
+                        r_list.append(rr[0])
+                    # print(f"i {i} nzm {nzm.size()} output_tokens_combined[i] {output_tokens_combined[i]}")
+                    # h = output_tokens_combined[i].long()
+                    # h = h.tolist()
+                    print(f"output_tokens_combined {output_tokens_combined.size()}")
+                    predicted_tokens = output_tokens_combined[i].long()
+                    if i in end_indices:
+                        print("Clipping until end index for audio", end_indices[i])
+                        h = predicted_tokens[0 : end_indices[i] + 1].tolist()
+                    print(f"r {r_list}")
+                    print(f"h {h}")
+
+                    cur_wer_score = editdistance.eval(r_list, h)
                     self.logger.experiment.add_scalar('WER', cur_wer_score, step)
                     print(f"current wer score : {cur_wer_score}")
                     wer_score += cur_wer_score
@@ -1051,6 +1064,7 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
                 self.logger.experiment.add_scalar('AVG WER', wer_score, step)
                 print(f"average wer score : {wer_score}")
 
+            if torch.count_nonzero(speech_mask) > 0:
                 # save predicted_wav and gt_wav to a wav files in dir_path
                 audio_fp_pred = os.path.join(_exp_dir_path, f'predicted_wav_{step}.wav')
                 sf.write(audio_fp_pred, predicted_wav.cpu().numpy(), 24000)
@@ -1081,26 +1095,26 @@ class MegatronT5SpeechLMModel(MegatronBaseSpeechLM):
                     ter_dict[layer_idx]['hypothesis'].append(predicted_tokens[layer_idx].cpu().numpy().tolist())
                     ter_dict[layer_idx]['gt'].append(dec_input_to_1024[layer_idx].cpu().numpy().tolist())
 
-            # compute token error rate for each layer
-            for layer_idx in range(8):
-                wer = word_error_rate(ter_dict[layer_idx]['hypothesis'], ter_dict[layer_idx]['gt'], use_cer=True)
-                self.logger.experiment.add_scalar(f'Inf TER Layer {layer_idx}', wer, 0)
+                # compute token error rate for each layer
+                for layer_idx in range(8):
+                    wer = word_error_rate(ter_dict[layer_idx]['hypothesis'], ter_dict[layer_idx]['gt'], use_cer=True)
+                    self.logger.experiment.add_scalar(f'Inf TER Layer {layer_idx}', wer, 0)
 
-            # compute character/word error rate for predicted transcript and gt transcript
-            cer_glob = word_error_rate(hyp_pred_transcript_list, gt_transcript_list, use_cer=True)
-            self.logger.experiment.add_scalar(f'Inf CER Transcript', cer_glob, batch_idx)
-            wer_glob = word_error_rate(hyp_pred_transcript_list, gt_transcript_list, use_cer=False)
-            self.logger.experiment.add_scalar(f'Inf WER Transcript', wer_glob, batch_idx)
+                # compute character/word error rate for predicted transcript and gt transcript
+                cer_glob = word_error_rate(hyp_pred_transcript_list, gt_transcript_list, use_cer=True)
+                self.logger.experiment.add_scalar(f'Inf CER Transcript', cer_glob, batch_idx)
+                wer_glob = word_error_rate(hyp_pred_transcript_list, gt_transcript_list, use_cer=False)
+                self.logger.experiment.add_scalar(f'Inf WER Transcript', wer_glob, batch_idx)
 
-            # compute average similarity
-            similarity_avg = np.mean(similarity_list)
-            self.logger.experiment.add_scalar(f'Inf SV Avg Cossim', similarity_avg, batch_idx)
+                # compute average similarity
+                similarity_avg = np.mean(similarity_list)
+                self.logger.experiment.add_scalar(f'Inf SV Avg Cossim', similarity_avg, batch_idx)
 
-            return {
-                'sv_avg_cossim': similarity_avg,
-                'cer_transcript': cer_glob,
-                'wer_transcript': wer_glob,
-            }
+                return {
+                    'sv_avg_cossim': similarity_avg,
+                    'cer_transcript': cer_glob,
+                    'wer_transcript': wer_glob,
+                }
 
     def predict_step_old(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Any:
 
