@@ -613,8 +613,6 @@ class MegatronGPTSFTModel(NLPAdapterModelMixin, MegatronGPTModel):
         inference_config = self.get_inference_config()
         # need to overwrite some configuration, make it immutable
         inference_config = inference_config.copy()
-        global_batch_size_per_gpu = batch['tokens'].size(0)
-        num_micro_batches_before_decode = get_num_microbatches()
 
         compute_logprob = inference_config.get('compute_logprob', False)
         if compute_logprob:
@@ -633,16 +631,18 @@ class MegatronGPTSFTModel(NLPAdapterModelMixin, MegatronGPTModel):
                 # peft_eval.py
                 inference_config['inputs'] = (batch['contexts'].cuda(), batch['context_lengths'].cuda())
             response = generate(self, **inference_config)
-
-        app_state = AppState()
-        _reconfigure_microbatch_calculator(
-            rank=app_state.global_rank,
-            rampup_batch_size=None,
-            global_batch_size=global_batch_size_per_gpu * parallel_state.get_data_parallel_world_size(),
-            micro_batch_size=global_batch_size_per_gpu // num_micro_batches_before_decode,
-            data_parallel_size=parallel_state.get_data_parallel_world_size(),
-        )
-
+        
+        if not isinstance(batch, list):
+            global_batch_size_per_gpu = batch['tokens'].size(0)
+            num_micro_batches_before_decode = get_num_microbatches()
+            app_state = AppState()
+            _reconfigure_microbatch_calculator(
+                rank=app_state.global_rank,
+                rampup_batch_size=None,
+                global_batch_size=global_batch_size_per_gpu * parallel_state.get_data_parallel_world_size(),
+                micro_batch_size=global_batch_size_per_gpu // num_micro_batches_before_decode,
+                data_parallel_size=parallel_state.get_data_parallel_world_size(),
+            )
         return response
 
     def write_predictions_to_file(self, outputs, output_file_path_prefix):
