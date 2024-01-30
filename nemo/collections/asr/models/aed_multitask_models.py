@@ -33,6 +33,7 @@ from nemo.collections.asr.data.audio_to_text_lhotse_prompted import (
     get_prompt_format_fn,
 )
 from nemo.collections.asr.models.asr_model import ASRModel, ExportableEncDecModel
+from nemo.collections.asr.modules.transformer import BeamSearchSequenceGenerator
 from nemo.collections.asr.parts.mixins import ASRBPEMixin
 from nemo.collections.asr.parts.submodules.multitask_decoding import MultiTaskDecoding, MultiTaskDecodingConfig
 from nemo.collections.asr.parts.submodules.token_classifier import TokenClassifier
@@ -40,6 +41,7 @@ from nemo.collections.asr.parts.utils import manifest_utils
 from nemo.collections.asr.parts.utils.audio_utils import ChannelSelectorType
 from nemo.collections.common import tokenizers
 from nemo.collections.common.data.lhotse import get_lhotse_dataloader_from_config
+from nemo.collections.common.losses import SmoothedCrossEntropyLoss
 from nemo.collections.common.metrics import GlobalAverageLossMetric
 from nemo.collections.common.parts import transformer_weights_init
 from nemo.collections.common.parts.preprocessing.manifest import get_full_path
@@ -182,6 +184,25 @@ class EncDecMultiTaskModel(ASRModel, ExportableEncDecModel, ASRBPEMixin):
             self.spec_augmentation = None
 
         self.val_loss = GlobalAverageLossMetric(dist_sync_on_step=False, take_avg_loss=True)
+
+        # Beam Search decoding
+        self.beam_search = BeamSearchSequenceGenerator(
+            embedding=self.transf_decoder.embedding,
+            decoder=self.transf_decoder.decoder,
+            log_softmax=self.log_softmax,
+            max_sequence_length=self.transf_decoder.max_sequence_length,
+            beam_size=1,
+            bos=self.tokenizer.bos_id,
+            pad=self.tokenizer.pad_id,
+            eos=self.tokenizer.eos_id,
+            len_pen=1.0,
+            max_delta_length=20,
+        )
+
+        # Define autoregressive CE loss
+        self.transf_loss = SmoothedCrossEntropyLoss(
+            pad_id=self.tokenizer.pad_id, label_smoothing=self.cfg.label_smoothing
+        )
 
     def change_decoding_strategy(self, decoding_cfg: DictConfig):
         """
@@ -559,6 +580,54 @@ class EncDecMultiTaskModel(ASRModel, ExportableEncDecModel, ASRBPEMixin):
 
         return {'loss': audio_loss, 'log': tensorboard_logs}
 
+    # def validation_step(self, batch, batch_idx, dataloader_idx=0, eval_mode="val"):
+    #     signal, signal_len, transcript, transcript_len = batch
+    #     input_ids, labels = transcript[:, :-1], transcript[:, 1:]
+
+    #     if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
+    #         transf_log_probs, encoded_len, enc_states, enc_mask = self.forward(
+    #             processed_signal=signal,
+    #             processed_signal_length=signal_len,
+    #             transcript=input_ids,
+    #             transcript_length=transcript_len,
+    #         )
+    #     else:
+    #         transf_log_probs, encoded_len, enc_states, enc_mask = self.forward(
+    #             input_signal=signal,
+    #             input_signal_length=signal_len,
+    #             transcript=input_ids,
+    #             transcript_length=transcript_len,
+    #         )
+
+    #     beam_hypotheses = self.decoding.decode_predictions_tensor(
+    #         encoder_hidden_states=enc_states,
+    #         encoder_input_mask=enc_mask,
+    #         decoder_input_ids=input_ids[:, : self.context_len_for_AR_decoding]
+    #         if self.context_len_for_AR_decoding > 0
+    #         else None,
+    #         return_hypotheses=False,
+    #     )[0]
+
+    #     transf_loss = self.transf_loss(log_probs=transf_log_probs, labels=labels)
+
+    #     ground_truths = [self.tokenizer.ids_to_text(sent) for sent in transcript.detach().cpu().tolist()]
+    #     translations = [hyp for hyp in beam_hypotheses]
+
+    #     self.val_loss(loss=transf_loss, num_measurements=transf_log_probs.shape[0] * transf_log_probs.shape[1])
+
+    #     output_dict = {
+    #         f'{eval_mode}_loss': transf_loss,
+    #         'translations': [self.decoding.strip_special_tokens(t) for t in translations],
+    #         'ground_truths': [self.decoding.strip_special_tokens(g) for g in ground_truths],
+    #     }
+
+    #     if type(self.trainer.val_dataloaders) == list and len(self.trainer.val_dataloaders) > 1:
+    #         self.validation_step_outputs[dataloader_idx].append(output_dict)
+    #     else:
+    #         self.validation_step_outputs.append(output_dict)
+
+    #     return output_dict
+
     def validation_step(self, batch, batch_idx, dataloader_idx=0, eval_mode="val"):
         signal, signal_len, transcript, transcript_len = batch
         input_ids, labels = transcript[:, :-1], transcript[:, 1:]
@@ -578,32 +647,19 @@ class EncDecMultiTaskModel(ASRModel, ExportableEncDecModel, ASRBPEMixin):
                 transcript_length=transcript_len,
             )
 
-        beam_hypotheses = self.decoding.decode_predictions_tensor(
-            encoder_hidden_states=enc_states,
-            encoder_input_mask=enc_mask,
-            decoder_input_ids=input_ids[:, : self.context_len_for_AR_decoding]
-            if self.context_len_for_AR_decoding > 0
-            else None,
-            return_hypotheses=False,
-        )[0]
-
+        beam_hypotheses = self.beam_search(
+            encoder_hidden_states=enc_states, encoder_input_mask=enc_mask, return_beam_scores=False
+        )
         transf_loss = self.transf_loss(log_probs=transf_log_probs, labels=labels)
 
         ground_truths = [self.tokenizer.ids_to_text(sent) for sent in transcript.detach().cpu().tolist()]
-        translations = [hyp for hyp in beam_hypotheses]
+        translations = [self.tokenizer.ids_to_text(sent) for sent in beam_hypotheses.detach().cpu().tolist()]
 
         self.val_loss(loss=transf_loss, num_measurements=transf_log_probs.shape[0] * transf_log_probs.shape[1])
 
-        output_dict = {
-            f'{eval_mode}_loss': transf_loss,
-            'translations': [self.decoding.strip_special_tokens(t) for t in translations],
-            'ground_truths': [self.decoding.strip_special_tokens(g) for g in ground_truths],
-        }
+        output_dict = {f'{eval_mode}_loss': transf_loss, 'translations': translations, 'ground_truths': ground_truths}
 
-        if type(self.trainer.val_dataloaders) == list and len(self.trainer.val_dataloaders) > 1:
-            self.validation_step_outputs[dataloader_idx].append(output_dict)
-        else:
-            self.validation_step_outputs.append(output_dict)
+        self.validation_step_outputs.append(output_dict)
 
         return output_dict
 
