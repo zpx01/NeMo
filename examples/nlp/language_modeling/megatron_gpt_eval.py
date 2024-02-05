@@ -148,7 +148,9 @@ class RequestDataSet(Dataset):
         super().__init__()
         self.sentences = sentences
 
-    def __len__(self,):
+    def __len__(
+        self,
+    ):
         return len(self.sentences)
 
     def __getitem__(self, idx):
@@ -198,8 +200,7 @@ def main(cfg) -> None:
                     cfg.pipeline_model_parallel_split_rank = model_config.get('pipeline_model_parallel_split_rank', 0)
 
     assert (
-        cfg.trainer.devices * cfg.trainer.num_nodes
-        == cfg.tensor_model_parallel_size * cfg.pipeline_model_parallel_size
+        cfg.trainer.devices * cfg.trainer.num_nodes == cfg.tensor_model_parallel_size * cfg.pipeline_model_parallel_size
     ), "devices * num_nodes should equal tensor_model_parallel_size * pipeline_model_parallel_size"
 
     if cfg.gpt_model_file:
@@ -297,9 +298,7 @@ def main(cfg) -> None:
             nb_paddings += 1
 
     # First method of running text generation, call model.generate method
-    response = model.generate(
-        inputs=OmegaConf.to_container(cfg.prompts), length_params=length_params, sampling_params=sampling_params
-    )
+    response = model.generate(inputs=OmegaConf.to_container(cfg.prompts), length_params=length_params, sampling_params=sampling_params)
 
     if fp8_enabled:
         response = remove_padded_prompts(response, nb_paddings)

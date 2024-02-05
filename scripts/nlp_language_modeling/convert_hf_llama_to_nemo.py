@@ -44,7 +44,11 @@ from nemo.utils import logging
 def get_args():
     parser = ArgumentParser()
     parser.add_argument(
-        "--in-file", type=str, default=None, required=True, help="Path to Huggingface LLaMA checkpoints",
+        "--in-file",
+        type=str,
+        default=None,
+        required=True,
+        help="Path to Huggingface LLaMA checkpoints",
     )
     parser.add_argument("--out-file", type=str, default=None, required=True, help="Path to output .nemo file.")
     parser.add_argument("--precision", type=str, default="16", help="Model precision")
@@ -116,7 +120,7 @@ def convert(args):
         scaler = None
         if precision in [16, '16', '16-mixed']:
             scaler = GradScaler(
-                init_scale=nemo_config.get('native_amp_init_scale', 2 ** 32),
+                init_scale=nemo_config.get('native_amp_init_scale', 2**32),
                 growth_interval=nemo_config.get('native_amp_growth_interval', 1000),
                 hysteresis=nemo_config.get('hysteresis', 2),
             )
@@ -142,9 +146,7 @@ def convert(args):
 
     mcore_gpt = nemo_config.mcore_gpt
 
-    assert mcore_gpt == nemo_config.get(
-        'transformer_engine', False
-    ), "mcore_gpt transformer_engine must be enabled (or disabled) together."
+    assert mcore_gpt == nemo_config.get('transformer_engine', False), "mcore_gpt transformer_engine must be enabled (or disabled) together."
 
     param_to_weights = lambda param: param.float()
 
