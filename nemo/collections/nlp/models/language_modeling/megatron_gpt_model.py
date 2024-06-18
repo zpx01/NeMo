@@ -101,6 +101,7 @@ try:
     from megatron.core.models.gpt.gpt_layer_specs import (
         get_gpt_layer_local_spec,
         get_gpt_layer_with_transformer_engine_spec,
+        get_gpt_kan_layer_with_transformer_engine_spec
     )
     from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
     from megatron.core.transformer.module import Float16Module as MCoreFloat16Module
@@ -152,6 +153,7 @@ def get_specs(spec_name, num_experts=None, moe_grouped_gemm=False, use_te=True):
     name_spec_dict = {
         "": get_gpt_layer_local_spec(num_experts, moe_grouped_gemm),
         "te_gpt": get_gpt_layer_with_transformer_engine_spec(num_experts, moe_grouped_gemm),
+        "kan_gpt": get_gpt_kan_layer_with_transformer_engine_spec(),
         "megatron_falcon_gpt": get_falcon_layer_spec(),
         "megatron_gpt_full_te_layer_autocast": get_gpt_full_te_layer_autocast_spec(),
         "modelopt": get_gpt_layer_modelopt_spec(),
